@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keyless-core:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - run: npm run release:verify
+      - run: npm run release:scan
+      - run: npm run release:sbom
+      - name: Confirm the committed SBOM is current
+        shell: pwsh
+        run: git diff --exit-code -- sbom.cdx.json
+      - name: Build and verify a release archive without DSH or credentials
+        shell: pwsh
+        run: npm run release:package -- -OutputDirectory "$env:RUNNER_TEMP\release" -ArtifactName "KAI-Work-Host-CI-${{ github.sha }}" -SkipValidation

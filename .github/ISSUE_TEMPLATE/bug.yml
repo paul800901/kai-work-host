@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a reproducible non-security defect
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, tunnel IDs, private paths, project data, or security exploit details.
+  - type: input
+    id: version
+    attributes:
+      label: KAI Work Host version
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options: [HTTP MCP, stdio MCP, DSH runtime, Windows installer, tunnel integration, documentation]
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction and expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted logs or validation evidence

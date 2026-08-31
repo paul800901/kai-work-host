@@ -1,0 +1,42 @@
+name: Pinned DSH contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  windows-keyless-dsh:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Checkout exact DSH pin
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch dsh-v0.1.1-rc.2 https://github.com/deepseek-ai/deepseek-harness.git "$env:RUNNER_TEMP\dsh"
+          $actual = git -C "$env:RUNNER_TEMP\dsh" rev-parse HEAD
+          if ($actual -ne "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e") { throw "DSH pin mismatch: $actual" }
+      - name: Build exact DSH host libraries
+        shell: pwsh
+        working-directory: ${{ runner.temp }}\dsh
+        run: |
+          npx --yes pnpm@11.7.0 install --frozen-lockfile
+          npx --yes pnpm@11.7.0 run build:lib:host
+      - name: Run the complete keyless Host contract
+        shell: pwsh
+        run: |
+          $env:KAI_WORK_HOST_DSH_ROOT = "$env:RUNNER_TEMP\dsh"
+          npm run validate

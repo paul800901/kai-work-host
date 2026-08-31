@@ -1,0 +1,58 @@
+{
+  "name": "@kai/work-host",
+  "version": "0.3.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Durable WebGPT-to-local-Luna work host over MCP and an independent DSH SDK runtime.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paul800901/kai-work-host.git"
+  },
+  "homepage": "https://github.com/paul800901/kai-work-host#readme",
+  "bugs": {
+    "url": "https://github.com/paul800901/kai-work-host/issues"
+  },
+  "keywords": [
+    "mcp",
+    "agent-harness",
+    "webgpt",
+    "luna",
+    "dsh"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "start": "node scripts/launch.mjs http",
+    "start:stdio": "node scripts/launch.mjs stdio",
+    "dev": "tsx src/index.ts",
+    "auth:login": "node scripts/login-luna-oauth.mjs",
+    "auth:status": "node scripts/login-luna-oauth.mjs --status",
+    "tunnel:connect": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/connect-managed-tunnel.ps1",
+    "test": "tsx --test test/**/*.test.ts",
+    "smoke:real:readonly": "node scripts/real-luna-readonly-smoke.mjs",
+    "smoke:dsh:keyless": "node scripts/probe-dsh-runtime.mjs",
+    "smoke:entrypoint": "node test/entrypoint-smoke.mjs",
+    "smoke:stdio": "node test/stdio-entrypoint-smoke.mjs",
+    "release:sbom": "node scripts/release/generate-sbom.mjs",
+    "release:scan": "node scripts/release/scan-public-tree.mjs .",
+    "release:verify": "node --import tsx scripts/release/verify-project.mjs",
+    "release:package": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/release/create-release.ps1",
+    "validate": "npm run check && npm run test && npm run build && npm run release:verify && npm run release:scan && npm run smoke:dsh:keyless && npm run smoke:entrypoint && npm run smoke:stdio"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "sharp": "0.35.3",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@types/node": "24.13.3",
+    "tsx": "4.23.13",
+    "typescript": "6.0.3"
+  }
+}

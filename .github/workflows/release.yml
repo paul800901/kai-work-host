@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Verify the release tag matches the package version
+        shell: pwsh
+        run: |
+          $package = Get-Content -LiteralPath package.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          $expectedTag = 'v' + [string]$package.version
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Release tag mismatch: expected $expectedTag, received $env:GITHUB_REF_NAME."
+          }
+      - name: Checkout the exact DSH pin
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch dsh-v0.1.1-rc.2 https://github.com/deepseek-ai/deepseek-harness.git "$env:RUNNER_TEMP\dsh"
+          $actual = git -C "$env:RUNNER_TEMP\dsh" rev-parse HEAD
+          if ($actual -ne 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e') {
+            throw "DSH pin mismatch: $actual"
+          }
+      - name: Build the exact DSH host libraries
+        shell: pwsh
+        working-directory: ${{ runner.temp }}\dsh
+        run: |
+          npx --yes pnpm@11.7.0 install --frozen-lockfile
+          npx --yes pnpm@11.7.0 run build:lib:host
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - run: npm run release:verify
+      - run: npm run release:scan
+      - run: npm run release:sbom
+      - name: Run the complete keyless Host contract
+        shell: pwsh
+        env:
+          KAI_WORK_HOST_DSH_ROOT: ${{ runner.temp }}\dsh
+        run: npm run validate
+      - name: Confirm the committed SBOM is current
+        shell: pwsh
+        run: git diff --exit-code -- sbom.cdx.json
+      - name: Build generic and East deployment assets
+        shell: pwsh
+        run: |
+          $releaseRoot = Join-Path $env:RUNNER_TEMP 'kai-work-host-release'
+          New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
+          npm run release:package -- -OutputDirectory $releaseRoot -SourceTag $env:GITHUB_REF_NAME -SkipValidation
+          npm run release:package -- -OutputDirectory $releaseRoot -InstanceId east -SourceTag $env:GITHUB_REF_NAME -SkipValidation
+      - name: Install and verify the generic asset in a clean tree
+        shell: pwsh
+        run: |
+          $releaseRoot = Join-Path $env:RUNNER_TEMP 'kai-work-host-release'
+          $package = Get-Content -LiteralPath package.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          $packageVersion = [string]$package.version
+          $genericZip = Join-Path $releaseRoot ("KAI-Work-Host-$packageVersion.zip")
+          $extractRoot = Join-Path $env:RUNNER_TEMP 'kai-work-host-extracted'
+          $installBase = Join-Path $env:RUNNER_TEMP 'kai-work-host-install-smoke'
+          Expand-Archive -LiteralPath $genericZip -DestinationPath $extractRoot
+          $releaseTree = Join-Path $extractRoot ("KAI-Work-Host-$packageVersion")
+          $manifest = Get-Content -LiteralPath (Join-Path $releaseTree 'RELEASE-MANIFEST.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($manifest.source.state -ne 'clean-commit' -or
+              $manifest.source.commit -ne $env:GITHUB_SHA -or
+              $manifest.source.tag -ne $env:GITHUB_REF_NAME) {
+            throw 'Release manifest does not match the clean tag source.'
+          }
+          & (Join-Path $releaseTree 'scripts\deploy\install-windows.ps1') `
+            -InstanceId release-smoke `
+            -BaseRoot $installBase `
+            -DshRoot (Join-Path $env:RUNNER_TEMP 'dsh') `
+            -NoDshBootstrap `
+            -SkipValidation
+          if ($LASTEXITCODE -ne 0) { throw 'Clean release installation failed.' }
+          $installedRoot = Join-Path $installBase ("app\$packageVersion")
+          & (Join-Path $installedRoot 'scripts\deploy\verify-windows.ps1') -InstallRoot $installedRoot
+          if ($LASTEXITCODE -ne 0) { throw 'Installed release verification failed.' }
+      - name: Publish the GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $releaseRoot = Join-Path $env:RUNNER_TEMP 'kai-work-host-release'
+          $assets = @(Get-ChildItem -LiteralPath $releaseRoot -File | Where-Object {
+            $_.Name -match '^KAI-Work-Host-.*\.zip(?:\.sha256)?$'
+          } | Sort-Object Name | ForEach-Object FullName)
+          if ($assets.Count -ne 4) { throw "Expected four release assets; found $($assets.Count)." }
+          gh release create $env:GITHUB_REF_NAME @assets `
+            --repo $env:GITHUB_REPOSITORY `
+            --verify-tag `
+            --generate-notes `
+            --title $env:GITHUB_REF_NAME

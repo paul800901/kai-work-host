@@ -1,0 +1,15 @@
+KAI Work Host
+Copyright (c) 2026 KAI Work Host contributors
+
+Portions of the local file/terminal compatibility surface and image preview
+were adapted from GPT Web Codex v2.2.11, used under the MIT License:
+Copyright (c) 2026 codex-chatgpt-web contributors.
+
+KAI Work Host integrates with, but does not modify or claim ownership of,
+DeepSeek Harness (DSH). DSH is a separate MIT-licensed dependency:
+Copyright (c) 2026 DeepSeek.
+
+OpenAI, ChatGPT, Codex, and related marks are trademarks of their respective
+owners. This project is independent and is not endorsed by OpenAI. Availability
+of any provider, model, authentication flow, connector, or tunnel is governed
+by that provider and can change independently of this project.

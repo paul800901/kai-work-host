@@ -77,7 +77,7 @@ export function loadConfig(): HostConfig {
     workerEffort: effortRaw,
     executionProfile,
     workerMaxOutputTokens: outputTokens,
-    runtimeStartupTimeoutMs: integerEnv("KAI_WORK_HOST_RUNTIME_STARTUP_MS", 20_000, 2_000, 120_000),
+    runtimeStartupTimeoutMs: integerEnv("KAI_WORK_HOST_RUNTIME_STARTUP_MS", 120_000, 2_000, 120_000),
     runtimeTurnTimeoutMs: integerEnv("KAI_WORK_HOST_RUNTIME_TURN_MS", 1_800_000, 10_000, 7_200_000),
     bearerToken,
     maxContextCharacters: integerEnv(

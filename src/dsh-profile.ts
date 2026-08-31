@@ -35,6 +35,19 @@ export const KAI_DSH_PROFILE_PATCH = `# Managed by KAI Work Host. Local edits ar
 - id: hmr
   disabled: true
 
+# KAI Work Host is a headless SDK runtime. The browser-facing type registry
+# and API gateway are client-build artifacts and are not part of the Host
+# execution path. Keeping them disabled also lets the pinned keyless contract
+# validate against DSH's documented host-only build face.
+- id: typert
+  disabled: true
+
+- id: typert-loader
+  disabled: true
+
+- id: typert-gateway
+  disabled: true
+
 - id: session-title-llm
   disabled: true
 
@@ -376,6 +389,8 @@ export class DshProfileManager {
       "",
       "const PERMISSION_METHOD = 'session/set-permission';",
       "const PERMISSION_PROFILES = new Set(['read-only', 'workspace-write', 'danger-full-access']);",
+      "const ADAPTER_READY_TIMEOUT_MS = 10_000;",
+      "const ADAPTER_READY_INTERVAL_MS = 25;",
       "",
       "function parsePermissionRequest(params) {",
       "  if (params === null || typeof params !== 'object' || Array.isArray(params)) {",
@@ -390,6 +405,33 @@ export class DshProfileManager {
       "    throw new TypeError('session/set-permission received an unsupported permissionProfile');",
       "  }",
       "  return { sessionId, permissionProfile };",
+      "}",
+      "",
+      "function initializeProvider(params) {",
+      "  if (params === null || typeof params !== 'object' || Array.isArray(params)) return null;",
+      "  const provider = params.provider;",
+      "  return typeof provider === 'string' && provider.length > 0 ? provider : null;",
+      "}",
+      "",
+      "function hasProviderAdapter(ctx, provider) {",
+      "  return ctx.get('llm')?.listProviders().some((entry) => entry.id === provider) ?? false;",
+      "}",
+      "",
+      "function delay(ms) {",
+      "  return new Promise((resolve) => { setTimeout(resolve, ms); });",
+      "}",
+      "",
+      "async function waitForProviderAdapter(ctx, provider) {",
+      "  if (provider === 'deepseek-official' || hasProviderAdapter(ctx, provider)) return;",
+      "  const deadline = Date.now() + ADAPTER_READY_TIMEOUT_MS;",
+      "  while (!hasProviderAdapter(ctx, provider)) {",
+      "    await ctx.get('loader')?.await();",
+      "    if (hasProviderAdapter(ctx, provider)) return;",
+      "    if (Date.now() >= deadline) {",
+      "      throw new Error('timed out waiting for DSH adapter route \"' + provider + '\" to register');",
+      "    }",
+      "    await delay(ADAPTER_READY_INTERVAL_MS);",
+      "  }",
       "}",
       "",
       "class KaiHarnessSdkJsonRpcServer extends HarnessSdkJsonRpcServer {",
@@ -471,7 +513,11 @@ export class DshProfileManager {
       "    return exitTask;",
       "  };",
       "  transport.onRequest(async (method, params) => {",
-      "    if (method === 'initialize') await ctx.get('loader')?.await();",
+      "    if (method === 'initialize') {",
+      "      await ctx.get('loader')?.await();",
+      "      const provider = initializeProvider(params);",
+      "      if (provider !== null) await waitForProviderAdapter(ctx, provider);",
+      "    }",
       "    const result = method === PERMISSION_METHOD",
       "      ? await server.setSessionPermission(params)",
       "      : await server.handleRequest(method, params);",

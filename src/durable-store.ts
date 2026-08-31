@@ -158,6 +158,7 @@ export class DurableStore extends EventEmitter {
     mutate: (task: TaskRecord) => void,
     eventType: string,
     data: Record<string, unknown>,
+    beforeCommit?: ((task: TaskRecord, event: TaskEvent) => Promise<void>) | undefined,
   ): Promise<{ task: TaskRecord; event: TaskEvent }> {
     return this.withLock(`task:${taskId}`, async () => {
       await this.recoverTaskTransaction(taskId);
@@ -173,6 +174,7 @@ export class DurableStore extends EventEmitter {
         data,
       };
       task.eventSequence = event.sequence;
+      await beforeCommit?.(task, event);
       await this.commitTaskTransition(task, event);
       this.emit("taskEvent", event);
       return { task, event };
@@ -300,9 +302,19 @@ export class DurableStore extends EventEmitter {
   async appendEpisode(episode: EpisodicMemory): Promise<void> {
     const directory = this.projectMemoryDirectory(episode.projectId);
     await mkdir(directory, { recursive: true });
-    await this.withLock(`memory:${episode.projectId}:l1`, () =>
-      appendFile(path.join(directory, "l1.jsonl"), `${JSON.stringify(episode)}\n`, "utf8"),
-    );
+    const file = path.join(directory, "l1.jsonl");
+    await this.withLock(`memory:${episode.projectId}:l1`, async () => {
+      const raw = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return "";
+        throw error;
+      });
+      const duplicate = raw
+        .split(/\r?\n/u)
+        .filter(Boolean)
+        .some((line) => (JSON.parse(line) as EpisodicMemory).episodeId === episode.episodeId);
+      if (duplicate) return;
+      await appendFile(file, `${JSON.stringify(episode)}\n`, "utf8");
+    });
   }
 
   async listEpisodes(projectId: string, limit = 8): Promise<EpisodicMemory[]> {

@@ -50,10 +50,11 @@ export class MemoryService {
     outcome: EpisodicMemory["outcome"],
     validation: string[],
     artifactPaths: string[],
+    episodeId = newId("episode"),
   ): Promise<EpisodicMemory> {
     const episode: EpisodicMemory = {
       schemaVersion: 1,
-      episodeId: newId("episode"),
+      episodeId,
       projectId: task.projectId,
       taskId: task.taskId,
       eventRange: { from: 1, to: task.eventSequence },

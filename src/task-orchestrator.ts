@@ -613,7 +613,10 @@ export class TaskOrchestrator {
       `receipt-${runId}.json`,
       `${JSON.stringify(receipt, null, 2)}\n`,
     );
-    const transitioned = await this.store.transitionTask(
+    const episodeId = `episode_${sha256(`${taskId}:${runId}`).slice(0, 24)}`;
+    const episodeArtifacts = [runtimeArtifact, diffArtifact, receiptPath]
+      .filter((value): value is string => value !== null);
+    await this.store.transitionTask(
       taskId,
       (current) => {
         current.status = result.status;
@@ -639,12 +642,15 @@ export class TaskOrchestrator {
         diffArtifact,
         totalTokens: usage.incremental?.totalTokens ?? null,
       },
-    );
-    await this.memory.recordEpisode(
-      transitioned.task,
-      result.status,
-      result.validation,
-      [runtimeArtifact, diffArtifact, receiptPath].filter((value): value is string => value !== null),
+      async (current) => {
+        await this.memory.recordEpisode(
+          current,
+          result.status,
+          result.validation,
+          episodeArtifacts,
+          episodeId,
+        );
+      },
     );
   }
 
@@ -683,7 +689,8 @@ export class TaskOrchestrator {
       `receipt-${runId}.json`,
       `${JSON.stringify(receipt, null, 2)}\n`,
     );
-    const transitioned = await this.store.transitionTask(
+    const episodeId = `episode_${sha256(`${taskId}:${runId}`).slice(0, 24)}`;
+    await this.store.transitionTask(
       taskId,
       (current) => {
         current.status = status;
@@ -699,8 +706,10 @@ export class TaskOrchestrator {
       },
       "turn.completed",
       { runId, status, error: message, receiptArtifact: receiptPath },
+      async (current) => {
+        await this.memory.recordEpisode(current, status, [], [receiptPath], episodeId);
+      },
     );
-    await this.memory.recordEpisode(transitioned.task, status, [], [receiptPath]);
   }
 
   private async markNeedsResume(taskId: string, runId: string, error: unknown): Promise<void> {

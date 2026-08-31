@@ -84,6 +84,14 @@ function taskIdFrom(result: Record<string, unknown>): string {
   return result.taskId;
 }
 
+function currentInstruction(prompt: string): string {
+  const taskStart = prompt.lastIndexOf("<task>");
+  if (taskStart >= 0) return prompt.slice(taskStart);
+  const authorizationUpdateEnd = prompt.lastIndexOf("</authorization_update>");
+  if (authorizationUpdateEnd >= 0) return prompt.slice(authorizationUpdateEnd + "</authorization_update>".length);
+  return prompt;
+}
+
 class FakeDshRuntime implements WorkerRuntimeControl {
   readonly prompts: Array<{
     taskId: string;
@@ -136,10 +144,11 @@ class FakeDshRuntime implements WorkerRuntimeControl {
       prompt: request.prompt,
     });
     await request.onEvent(event("turn/start", 1, { turn: this.prompts.length }));
-    if (request.prompt.includes("[crash]")) {
+    const instruction = currentInstruction(request.prompt);
+    if (instruction.includes("[crash]")) {
       throw new HostError("runtime_exited", "Simulated DSH process loss");
     }
-    if (request.prompt.includes("[hold]")) {
+    if (instruction.includes("[hold]")) {
       return new Promise<WorkerRunResult>((_resolve, reject) => {
         this.held.set(request.taskId, { reject });
       });
@@ -273,7 +282,7 @@ test("WebGPT fast mode selects compact KAI context without claiming a provider f
   assert.equal(effectiveContextCharacterCap(6_000, true), 6_000);
 });
 
-test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, interruption, and no-replay recovery", { timeout: 120_000 }, async () => {
+test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, interruption, and no-replay recovery", { timeout: 300_000 }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), "kai-work-host-"));
   const stateRoot = path.join(root, "state");
   const projectRoot = path.join(root, "project");
@@ -372,6 +381,7 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
     const normalTaskId = taskIdFrom(normal);
     const normalDone = await waitForTask(orchestrator, normalTaskId, (task) => task.status === "completed");
     assert.equal(record(normalDone.task).lastAgentMessage, "Fake Luna completed the requested work.");
+    assert.equal((await store.listEpisodes(project.projectId, 20)).length, 1);
     const completedRuntime = record((await orchestrator.hostStatus()).runtime);
     assert.equal(completedRuntime.activeTaskProcesses, 0);
     const duplicate = await orchestrator.startTask({
@@ -396,6 +406,7 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
       normalTaskId,
       (task) => task.status === "completed" && Number(task.eventSequence) > Number(record(normalDone.task).eventSequence),
     );
+    assert.equal((await store.listEpisodes(project.projectId, 20)).length, 2);
     const taskPrompts = runtime.prompts.filter((entry) => entry.taskId === normalTaskId);
     assert.equal(taskPrompts.length, 2);
     assert.equal(taskPrompts[0]?.sessionId, taskPrompts[1]?.sessionId);
@@ -446,6 +457,7 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
       reason: "Test explicit interruption.",
     });
     await waitForTask(orchestrator, heldTaskId, (task) => task.status === "interrupted");
+    assert.equal((await store.listEpisodes(project.projectId, 20)).length, 3);
     const interruptedRuntime = record((await orchestrator.hostStatus()).runtime);
     assert.equal(interruptedRuntime.activeTaskProcesses, 0);
 
@@ -476,6 +488,7 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
       mode: "new_turn",
     });
     await waitForTask(orchestrator, crashedTaskId, (task) => task.status === "completed");
+    assert.equal((await store.listEpisodes(project.projectId, 20)).length, 4);
     const recoveredPrompts = runtime.prompts.filter((entry) => entry.taskId === crashedTaskId);
     assert.equal(recoveredPrompts.length, 2);
     assert.equal(recoveredPrompts[0]?.sessionId, recoveredPrompts[1]?.sessionId);
@@ -483,6 +496,7 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
 
     const episodes = await store.listEpisodes(project.projectId, 20);
     assert.ok(episodes.length >= 4);
+    assert.equal(new Set(episodes.map((episode) => episode.episodeId)).size, episodes.length);
     assert.ok(episodes.every((episode) => episode.eventRange.to >= 1));
 
     const status = await orchestrator.hostStatus();

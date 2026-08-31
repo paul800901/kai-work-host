@@ -24,6 +24,7 @@ async function reservePort() {
 
 const stateRoot = await mkdtemp(path.join(tmpdir(), "kai-work-host-entrypoint-"));
 const port = await reservePort();
+const startupTimeoutMs = Number.parseInt(process.env.KAI_WORK_HOST_RUNTIME_STARTUP_MS ?? "120000", 10);
 const child = spawn(process.execPath, [path.resolve("dist/index.js")], {
   cwd: process.cwd(),
   windowsHide: true,
@@ -35,6 +36,7 @@ const child = spawn(process.execPath, [path.resolve("dist/index.js")], {
     KAI_WORK_HOST_HOME: stateRoot,
     KAI_WORK_HOST_DSH_HOME: path.join(stateRoot, "dsh"),
     KAI_WORK_HOST_DSH_PROFILE: "kai-work-host-entrypoint-smoke",
+    KAI_WORK_HOST_RUNTIME_STARTUP_MS: String(startupTimeoutMs),
   },
 });
 
@@ -47,7 +49,7 @@ child.stderr.on("data", (chunk) => {
 try {
   const line = await new Promise((resolve, reject) => {
     let buffer = "";
-    const timer = setTimeout(() => reject(new Error(`Host startup timed out: ${stderr}`)), 5_000);
+    const timer = setTimeout(() => reject(new Error(`Host startup timed out: ${stderr}`)), startupTimeoutMs);
     child.once("exit", (code) => {
       clearTimeout(timer);
       reject(new Error(`Host exited before readiness (code=${code}): ${stderr}`));

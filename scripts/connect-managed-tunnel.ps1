@@ -4,10 +4,16 @@ param(
     [string]$ProfileName = "kai-work-host",
     [string]$ProfileDir,
     [string]$TunnelClient,
+    # The Host accepts Luna turns up to two hours; keep forwarding alive slightly longer.
+    [string]$McpConnectionMaxTtl = "2h5m",
     [switch]$Restart
 )
 
 $ErrorActionPreference = "Stop"
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+$OutputEncoding = $utf8
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
 
 $userProfile = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
 $bridgeRoot = if ($env:CODEX_CHATGPT_WEB_HOME) {
@@ -40,6 +46,24 @@ function Normalize-PathEntry {
         return [IO.Path]::GetFullPath($trimmed).TrimEnd('\')
     } catch {
         return $trimmed.TrimEnd('\')
+    }
+}
+
+function Set-McpConnectionMaxTtlInProfile {
+    param([string]$Path,[string]$Value)
+
+    $document = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($null -eq $document.mcp) {
+        throw "The managed tunnel profile has no MCP section: $Path"
+    }
+    $document.mcp | Add-Member -MemberType NoteProperty -Name connection_max_ttl -Value $Value -Force
+    $temporaryPath = "$Path.tmp-$PID"
+    try {
+        $json = $document | ConvertTo-Json -Depth 16
+        [IO.File]::WriteAllText($temporaryPath, $json + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $temporaryPath -Destination $Path -Force
+    } finally {
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -159,6 +183,7 @@ $profile = Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8 | ConvertFr
 if (-not $profile.control_plane.tunnel_id -or -not $profile.control_plane.api_key) {
     throw "The managed tunnel profile is missing its tunnel id or runtime-key reference."
 }
+$profileTtlMatches = [string]$profile.mcp.connection_max_ttl -eq $McpConnectionMaxTtl
 
 $sameTunnelProfiles = @(Get-ChildItem -LiteralPath $ProfileDir -File -Filter "*.yaml" | Where-Object {
     $_.FullName -ne $profilePath
@@ -214,21 +239,26 @@ if($status.process_running){
     })
     $functionalHealth = Get-TunnelFunctionalHealth -Status $status
     $currentHostCount = @($plan.currentChains).Count
-    $managedReady = [bool]($status.process_running -and $status.ready -and $status.healthy -and $codexSidecars.Count -eq 0 -and $currentHostCount -eq 1 -and -not $functionalHealth.poisoned)
-    if(-not $Restart -and $managedReady){
+    $topologyReady = [bool]($status.process_running -and $status.ready -and $status.healthy -and $codexSidecars.Count -eq 0 -and $currentHostCount -eq 1)
+    if(-not $Restart -and $topologyReady){
+        if (-not $profileTtlMatches) {
+            throw "The managed tunnel is running without the required MCP connection TTL; use explicit -Restart."
+        }
+        $functionalIssue = Format-FunctionalHealthIssue -Health $functionalHealth
         [pscustomobject]@{
             ok = $true
             alias = $Alias
             state = "already-ready"
-            mcpFunctionallyHealthy = $true
+            mcpFunctionallyHealthy = [bool](-not $functionalHealth.poisoned)
+            functionalIssue = $functionalIssue
+            mcpConnectionMaxTtl = $McpConnectionMaxTtl
+            tunnelClientCount = @($plan.managedTunnelPids).Count
             kaiHostCount = $currentHostCount
             codexProductSidecarCount = 0
         } | ConvertTo-Json -Compress
         exit 0
     }
     if(-not $Restart){
-        $functionalIssue = Format-FunctionalHealthIssue -Health $functionalHealth
-        if ($functionalIssue) { throw "The managed tunnel is superficially ready but $functionalIssue; use explicit -Restart." }
         throw 'The managed tunnel is not ready and healthy; use explicit -Restart.'
     }
 
@@ -259,6 +289,7 @@ Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue
 Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue
 Remove-Item Env:OPENAI_ORGANIZATION -ErrorAction SilentlyContinue
 Remove-Item Env:OPENAI_PROJECT -ErrorAction SilentlyContinue
+$env:MCP_CONNECTION_MAX_TTL = $McpConnectionMaxTtl
 
 if (Get-Command codex.exe -ErrorAction SilentlyContinue) {
     throw "Codex remains discoverable after the managed PATH isolation."
@@ -284,6 +315,7 @@ $null = Invoke-TunnelJson -Arguments @(
     "--mcp-command", $mcpCommand,
     "--json"
 )
+Set-McpConnectionMaxTtlInProfile -Path $profilePath -Value $McpConnectionMaxTtl
 
 $readyDeadline=[DateTime]::UtcNow.AddSeconds(10)
 $finalStatus=$null
@@ -334,6 +366,7 @@ if(-not $managedReady){
     alias = $Alias
     state = "ready"
     mcpFunctionallyHealthy = $true
+    mcpConnectionMaxTtl = $McpConnectionMaxTtl
     tunnelClientCount = @($finalPlan.managedTunnelPids).Count
     kaiHostCount = $hostNodes.Count
     codexProductSidecarCount = $finalSidecars.Count

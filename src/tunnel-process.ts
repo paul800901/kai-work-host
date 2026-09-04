@@ -66,7 +66,12 @@ export function isKaiStdioLauncher(process: ProcessSnapshot, projectRoot: string
 }
 
 export function isKaiHostNode(process: ProcessSnapshot, projectRoot: string): boolean {
-  return nameIs(process, "node") && commandOf(process).includes(`${normalized(projectRoot)}/dist/stdio.js`);
+  if (!nameIs(process, "node")) return false;
+
+  const command = commandOf(process).replaceAll('"', "");
+  const root = normalized(projectRoot);
+  return command.includes(`${root}/dist/stdio.js`) ||
+    (command.includes(`${root}/scripts/launch.mjs`) && /(?:^|\s)stdio(?:\s|$)/u.test(command));
 }
 
 export function isManagedTunnelClient(process: ProcessSnapshot, options: TunnelProcessOptions): boolean {

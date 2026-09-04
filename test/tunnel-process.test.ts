@@ -57,6 +57,16 @@ function node(processId: number, parentProcessId: number): ProcessSnapshot {
   };
 }
 
+function launcherNode(processId: number, parentProcessId: number): ProcessSnapshot {
+  return {
+    processId,
+    parentProcessId,
+    name: "node.exe",
+    creationDate: `time-${processId}`,
+    commandLine: '"C:/Program Files/nodejs/node.exe" "C:/KAI-Test/kai-work-host/scripts/launch.mjs" stdio',
+  };
+}
+
 function currentAndStale(): ProcessSnapshot[] {
   return [tunnel(100), launcher(101, 100), node(102, 101), launcher(201, 999), node(202, 201)];
 }
@@ -73,6 +83,14 @@ test("single current chain is preserved and restart has one connect action", () 
     stopManagedTunnel: true,
     connect: true,
   });
+});
+
+test("current launch.mjs stdio process is classified as the KAI host node", () => {
+  const classification = classifyProcessSnapshot([
+    tunnel(100), launcher(101, 100), launcherNode(102, 101),
+  ], 100, options);
+  assert.deepEqual(classification.currentChains.map((chain) => [chain.launcherPid, chain.nodePid]), [[101, 102]]);
+  assert.deepEqual(classification.ambiguousReasons, []);
 });
 
 test("orphan launcher and node are stale only with explicit parent evidence", () => {

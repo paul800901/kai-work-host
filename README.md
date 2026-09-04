@@ -51,7 +51,7 @@ Luna（本機執行 worker）
 
 ```text
 <source-root>                                 # 本專案 source／Git
-<base-root>\app\0.3.0                        # 已安裝程式
+<base-root>\app\0.3.1                        # 已安裝程式
 <base-root>\instances\<instance-id>          # runtime、Task、記憶、receipt
 <base-root>\instances\<instance-id>\dsh      # 獨立 DSH profile、Session、OAuth grant
 <base-root>\dependencies\DeepSeekHarness-*   # 固定且唯讀的 DSH 底座
@@ -153,7 +153,7 @@ HTTP 與 stdio 入口會對同一 `KAI_WORK_HOST_HOME` 取得作業系統持有�
 
 原始碼採 [MIT License](LICENSE)。`private: true` 只用來防止誤發 npm，不限制 MIT 授權下的使用、修改與散布。公開版本需從 clean Git commit/tag 產生；本機 East/South 等 deployment label 只會加入不含秘密的 instance installer，不會把 OAuth、tunnel key、專案路徑或記憶打包。詳見 [RELEASE.md](docs/RELEASE.md) 與 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-`v0.3.0` 的同一個 GitHub Release 可以同時放通用資產與 East instance 資產：
+`v0.3.1` 的同一個 GitHub Release 可以同時放通用資產與 East instance 資產：
 
-- `KAI-Work-Host-0.3.0.zip` 與 `KAI-Work-Host-0.3.0.zip.sha256` 是通用公開套件。
-- `KAI-Work-Host-East-0.3.0.zip` 與 `KAI-Work-Host-East-0.3.0.zip.sha256` 是同一 release 下的 East instance 便利安裝資產，只增加不含秘密的 `DEPLOYMENT_PROFILE.json` 與 `Install-East.ps1`；East 不是第三個 repository，也不是另一條 release。
+- `KAI-Work-Host-0.3.1.zip` 與 `KAI-Work-Host-0.3.1.zip.sha256` 是通用公開套件。
+- `KAI-Work-Host-East-0.3.1.zip` 與 `KAI-Work-Host-East-0.3.1.zip.sha256` 是同一 release 下的 East instance 便利安裝資產，只增加不含秘密的 `DEPLOYMENT_PROFILE.json` 與 `Install-East.ps1`；East 不是第三個 repository，也不是另一條 release。

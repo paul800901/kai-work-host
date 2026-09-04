@@ -36,7 +36,7 @@ The default non-admin layout is:
 
 ```text
 %LOCALAPPDATA%\KAI\WorkHost\
-├─ app\0.3.0\                         immutable application copy
+├─ app\0.3.1\                         immutable application copy
 ├─ dependencies\DeepSeekHarness-...\ exact read-only DSH checkout
 └─ instances\east\                   writable state for this instance only
    ├─ dsh\                            DSH profile, Session, OAuth grant

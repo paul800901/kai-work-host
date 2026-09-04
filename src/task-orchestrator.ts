@@ -23,7 +23,7 @@ import type {
   TokenUsageBreakdown,
 } from "./types.js";
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 const MAX_TASK_DIRECTIVE_CHARACTERS = 12_000;
 const MAX_STORED_AGENT_MESSAGE_CHARACTERS = 16_000;
 const ACTIVE_TASK_STATUSES = new Set<TaskStatus>(["queued", "starting", "running"]);

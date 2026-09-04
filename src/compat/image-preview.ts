@@ -312,7 +312,7 @@ export const IMAGE_PREVIEW_HTML = String.raw`<!doctype html>
         request("ui/initialize", {
           protocolVersion: "2025-06-18",
           appCapabilities: {},
-          appInfo: { name: "webgpt-image-preview", version: "0.3.0" },
+          appInfo: { name: "webgpt-image-preview", version: "0.3.1" },
         }).then(() => {
           window.parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/initialized" }, "*");
           finishStartup();

@@ -70,7 +70,7 @@ try {
   assert.equal(readiness.runtime, "dsh-sdk-jsonrpc");
   const response = await fetch(`http://127.0.0.1:${port}/healthz`);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true, service: "kai-work-host", version: "0.3.0" });
+  assert.deepEqual(await response.json(), { ok: true, service: "kai-work-host", version: "0.3.1" });
   process.stdout.write("KAI Work Host entrypoint and health route are ready.\n");
 } finally {
   if (child.exitCode === null) {

@@ -19,13 +19,14 @@ export type ExecutionProfile = "lean" | "standard";
 
 export interface RuntimeBinding {
   schemaVersion: 1;
-  engine: "dsh-sdk-jsonrpc";
+  /** Old DSH bindings remain readable, but cannot be resumed by Codex. */
+  engine: "codex-app-server-stdio" | "dsh-sdk-jsonrpc";
   provider: string;
   model: string;
   effort?: RuntimeEffort;
   fast?: boolean;
   profile: string;
-  sessionId: string;
+  sessionId: string | null;
 }
 
 export interface TokenUsageBreakdown {
@@ -202,16 +203,11 @@ export interface HostConfig {
   bindHost: string;
   port: number;
   stateRoot: string;
-  dshRoot: string;
-  dshHome: string;
-  dshCliPath: string;
-  dshSdkPluginRoot: string;
-  dshProfile: string;
-  dshProvider: "openai-codex";
+  codexHome: string;
+  codexCliPath: string;
   workerModel: string;
   workerEffort: WorkerEffort;
   executionProfile: ExecutionProfile;
-  workerMaxOutputTokens: number | null;
   runtimeStartupTimeoutMs: number;
   runtimeTurnTimeoutMs: number;
   bearerToken: string | null;

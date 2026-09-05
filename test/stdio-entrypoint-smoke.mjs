@@ -20,8 +20,7 @@ const transport = new StdioClientTransport({
   env: {
     ...process.env,
     KAI_WORK_HOST_HOME: stateRoot,
-    KAI_WORK_HOST_DSH_HOME: path.join(stateRoot, "dsh"),
-    KAI_WORK_HOST_DSH_PROFILE: "kai-work-host-stdio-smoke",
+    KAI_WORK_HOST_CODEX_HOME: path.join(stateRoot, "codex"),
   },
   stderr: "pipe",
 });

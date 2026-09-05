@@ -22,6 +22,7 @@ import {
   writeAnnotations,
 } from "./mcp-shared.js";
 import type { HostConfig, TaskTurnRecord } from "./types.js";
+import { WORKER_NETWORK_ENFORCEMENT } from "./worker-runtime.js";
 
 export function registerLunaTools(
   server: McpServer,
@@ -56,7 +57,7 @@ export function registerLunaTools(
         workspace_path: z.string(),
         permission_mode: sandbox,
         network_access: z.boolean(),
-        network_enforcement: z.literal("model-policy-only"),
+        network_enforcement: z.enum(["model-policy-only", "codex-sandbox"]),
         model: z.string(),
         reasoning_effort: reasoning,
         fast: z.boolean(),
@@ -95,7 +96,7 @@ export function registerLunaTools(
         workspace_path: binding.workspacePath,
         permission_mode: binding.permissionMode,
         network_access: binding.networkAccess,
-        network_enforcement: "model-policy-only",
+        network_enforcement: WORKER_NETWORK_ENFORCEMENT,
         model: binding.model,
         reasoning_effort: binding.reasoningEffort,
         fast: binding.fast,
@@ -104,7 +105,7 @@ export function registerLunaTools(
         luna_session_id: await compatibilitySessionId(compatibility, binding.lastJobId),
         session_policy: KAI_SESSION_POLICY,
         session_boundary_notice: KAI_SESSION_BOUNDARY_NOTICE,
-        kai_memory: { l0: true, l1: true, l2: true, project_id: binding.projectId },
+        kai_memory: { l0: true, l1: false, l2: false, project_id: binding.projectId },
       });
     }),
   );
@@ -113,7 +114,7 @@ export function registerLunaTools(
     "codexluna_start",
     {
       title: "Start Luna execution",
-      description: "Start one asynchronous local Luna turn through KAI Work Host after codexluna_init. Later starts in the same conversation reuse the durable DSH named session and receive concise KAI memory instead of rebuilding project context.",
+      description: "Start one asynchronous local Luna turn through KAI Work Host after codexluna_init. Later starts in the same conversation resume the same official Codex thread with incremental instructions and no automatic cross-task memory.",
       inputSchema: z.object({
         web_session_id: sessionId.optional(),
         prompt: z.string().min(1).max(12_000),
@@ -133,7 +134,7 @@ export function registerLunaTools(
         workspace_path: z.string(),
         permission_mode: sandbox,
         network_access: z.boolean(),
-        network_enforcement: z.literal("model-policy-only"),
+        network_enforcement: z.enum(["model-policy-only", "codex-sandbox"]),
         model: z.string(),
         reasoning_effort: reasoning,
         fast: z.boolean(),
@@ -173,7 +174,7 @@ export function registerLunaTools(
         workspace_path: started.binding.workspacePath,
         permission_mode: started.binding.permissionMode,
         network_access: started.binding.networkAccess,
-        network_enforcement: "model-policy-only",
+        network_enforcement: WORKER_NETWORK_ENFORCEMENT,
         model: started.binding.model,
         reasoning_effort: started.binding.reasoningEffort,
         fast: started.binding.fast,
@@ -198,7 +199,7 @@ export function registerLunaTools(
         workspace_path: z.string(),
         permission_mode: sandbox,
         network_access: z.boolean(),
-        network_enforcement: z.literal("model-policy-only"),
+        network_enforcement: z.enum(["model-policy-only", "codex-sandbox"]),
         model: z.string(),
         reasoning_effort: reasoning,
         fast: z.boolean(),
@@ -240,7 +241,7 @@ export function registerLunaTools(
     "codexluna_cancel",
     {
       title: "Cancel Luna execution",
-      description: "Cancel only the active KAI-owned Luna turn for this job; its WebGPT binding, DSH named session, receipts, and project memory are preserved.",
+      description: "Cancel only the active KAI-owned Luna turn for this job; its WebGPT binding, Codex thread, receipts, and original records are preserved.",
       inputSchema: z.object({ job_id: z.string().uuid(), web_session_id: sessionId.optional() }),
       outputSchema: z.object({
         web_session_id: sessionId,
@@ -273,7 +274,7 @@ export function registerLunaTools(
     "codexluna_session",
     {
       title: "Inspect Luna session binding",
-      description: "Inspect the durable KAI/DSH Luna binding for this ChatGPT conversation without creating or running a turn.",
+      description: "Inspect the durable KAI/Codex Luna binding for this ChatGPT conversation without creating or running a turn.",
       inputSchema: z.object({ web_session_id: sessionId.optional() }),
       outputSchema: z.object({
         binding: z.object({
@@ -282,7 +283,7 @@ export function registerLunaTools(
           workspace_path: z.string(),
           permission_mode: sandbox,
           network_access: z.boolean(),
-          network_enforcement: z.literal("model-policy-only"),
+          network_enforcement: z.enum(["model-policy-only", "codex-sandbox"]),
           model: z.string(),
           reasoning_effort: reasoning,
           fast: z.boolean(),
@@ -312,7 +313,7 @@ export function registerLunaTools(
           workspace_path: binding.workspacePath,
           permission_mode: binding.permissionMode,
           network_access: binding.networkAccess,
-          network_enforcement: "model-policy-only",
+          network_enforcement: WORKER_NETWORK_ENFORCEMENT,
           model: binding.model,
           reasoning_effort: binding.reasoningEffort,
           fast: binding.fast,
@@ -369,7 +370,7 @@ function statusPayload(
     workspace_path: current.binding.workspacePath,
     permission_mode: current.turn.permissionProfile ?? current.binding.permissionMode,
     network_access: current.turn.networkAccess ?? current.binding.networkAccess,
-    network_enforcement: "model-policy-only",
+    network_enforcement: WORKER_NETWORK_ENFORCEMENT,
     model: runtimeBinding?.model ?? current.binding.model,
     reasoning_effort: runtimeBinding?.effort ?? current.binding.reasoningEffort,
     fast: runtimeBinding?.fast ?? current.binding.fast,

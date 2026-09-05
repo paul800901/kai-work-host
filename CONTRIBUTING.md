@@ -1,6 +1,6 @@
 # Contributing
 
-KAI Work Host is a thin execution-management layer above a pinned DSH runtime.
+KAI Work Host is a thin MCP bridge above the pinned official Codex App Server.
 Changes must preserve that ownership boundary and the 18-tool public MCP
 contract.
 
@@ -9,8 +9,8 @@ contract.
 1. Install Node.js 24 or newer.
 2. Run `npm ci`.
 3. Run `npm run check`, `npm test`, and `npm run build`.
-4. For the DSH contract probe, provide the exact built checkout described in
-   `config/dsh-pin.json`, then run `npm run smoke:dsh:keyless`.
+4. Run `npm run smoke:codex:keyless` against the installed pinned Codex package.
+   It initializes the real protocol and checks sandbox cancellation without a model call.
 
 Routine tests must not sign in, consume model allowance, create a tunnel,
 modify a real project, or read a maintainer's runtime state. Paid Luna smoke
@@ -24,11 +24,11 @@ tests and connector tests are explicit operator actions outside CI.
   runtime keys, bearer tokens, logs, sessions, Task state, or project memory.
 - Add or update tests for permission, workspace, request-id, recovery, and tool
   contract changes.
-- Do not upgrade DSH in-place. A pin change requires an isolated candidate,
+- Do not upgrade Codex in-place. A pin change requires an isolated candidate,
   migration/readback evidence, Windows validation, and an updated threat model,
   SBOM, notices, and release manifest.
-- Run `npm run validate` with an exact keyless DSH checkout before requesting
-  review.
+- Run `npm run validate` before requesting review. Never build or validate in a
+  development tree that is serving a live Host; use an isolated installation.
 
 ## Commit and release discipline
 

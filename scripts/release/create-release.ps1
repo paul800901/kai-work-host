@@ -83,15 +83,12 @@ param(
     [string]`$BaseRoot,
     [string]`$InstallRoot,
     [string]`$StateRoot,
-    [string]`$DshRoot,
-    [switch]`$NoDshBootstrap,
     [switch]`$SkipValidation
 )
 `$arguments = @{ InstanceId = '$Id' }
-foreach (`$name in @('BaseRoot','InstallRoot','StateRoot','DshRoot')) {
+foreach (`$name in @('BaseRoot','InstallRoot','StateRoot')) {
     if (-not [string]::IsNullOrWhiteSpace((Get-Variable -Name `$name -ValueOnly))) { `$arguments[`$name] = Get-Variable -Name `$name -ValueOnly }
 }
-if (`$NoDshBootstrap) { `$arguments.NoDshBootstrap = `$true }
 if (`$SkipValidation) { `$arguments.SkipValidation = `$true }
 & (Join-Path `$PSScriptRoot 'scripts\deploy\install-windows.ps1') @arguments
 exit `$LASTEXITCODE
@@ -101,7 +98,6 @@ exit `$LASTEXITCODE
 
 $projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $package = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-$pin = Get-Content -LiteralPath (Join-Path $projectRoot 'config\dsh-pin.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if (-not [string]::IsNullOrWhiteSpace($SourceTag) -and $SourceTag -ne ('v' + [string]$package.version)) {
     throw "SourceTag does not match package version $($package.version): $SourceTag"
 }
@@ -177,7 +173,7 @@ try {
         generated_at_utc = [DateTime]::UtcNow.ToString('o')
         source = [ordered]@{ state = $sourceState; commit = $sourceCommit; tag = if ([string]::IsNullOrWhiteSpace($SourceTag)) { $null } else { $SourceTag } }
         deployment = if ([string]::IsNullOrWhiteSpace($InstanceId)) { $null } else { [ordered]@{ instance_id = $InstanceId; contains_secrets = $false } }
-        dsh = [ordered]@{ repository = [string]$pin.repository; version = [string]$pin.version; commit = [string]$pin.commit }
+        codex = [ordered]@{ package = '@openai/codex'; version = [string]$package.dependencies.'@openai/codex' }
         mcp_contract = [ordered]@{ public_tools = 18; raw_tools = 19; private_tools = @('file_image_preview_restore') }
         files = $files
     }

@@ -20,6 +20,8 @@ export interface StdioChain {
 
 export interface ProcessClassification {
   managedTunnelPids: number[];
+  codexWorkerPids: number[];
+  codexProductSidecarPids: number[];
   currentChains: StdioChain[];
   staleChains: StdioChain[];
   unclassifiedKaiPids: number[];
@@ -53,34 +55,65 @@ function normalized(value: string): string {
   return value.trim().replaceAll("\\", "/").replaceAll(/\/+/g, "/").replace(/\/$/, "").toLowerCase();
 }
 
-function commandOf(process: ProcessSnapshot): string {
-  return normalized(process.commandLine ?? "");
+// Windows command-line quoting: whitespace separates only outside double quotes;
+// backslashes before a quote escape it in pairs. Never authorize via substring.
+export function processArguments(commandLine: string): string[] {
+  const args: string[] = [];
+  let arg = "", quoted = false, present = false;
+  for (let i = 0; i < commandLine.length; i += 1) {
+    const c = commandLine[i]!;
+    if (/\s/u.test(c) && !quoted) {
+      if (present) args.push(arg);
+      arg = ""; present = false; continue;
+    }
+    present = true;
+    if (c === "\\") {
+      let count = 1;
+      while (commandLine[i + 1] === "\\") { count += 1; i += 1; }
+      if (commandLine[i + 1] === '"') {
+        arg += "\\".repeat(Math.floor(count / 2)); i += 1;
+        if (count % 2) arg += '"'; else quoted = !quoted;
+      } else arg += "\\".repeat(count);
+    } else if (c === '"') quoted = !quoted;
+    else arg += c;
+  }
+  if (quoted) return []; // An unterminated command cannot establish ownership.
+  if (present) args.push(arg);
+  return args;
 }
 
 function nameIs(process: ProcessSnapshot, name: string): boolean {
-  return process.name.toLowerCase().replace(/\.exe$/, "") === name;
+  return process.processId > 0 && process.name.toLowerCase().replace(/\.exe$/, "") === name;
 }
 
 export function isKaiStdioLauncher(process: ProcessSnapshot, projectRoot: string): boolean {
-  return nameIs(process, "powershell") && commandOf(process).includes(`${normalized(projectRoot)}/scripts/start-stdio.ps1`);
+  if (!nameIs(process, "powershell")) return false;
+  const args = processArguments(process.commandLine ?? "");
+  const file = args.findIndex((arg) => arg.toLowerCase() === "-file");
+  return file > 0 && !args.slice(1, file).some((arg) => /^-(?:c|command|e|ec|encodedcommand)$/iu.test(arg))
+    && normalized(args[file + 1] ?? "") === `${normalized(projectRoot)}/scripts/start-stdio.ps1`;
 }
 
 export function isKaiHostNode(process: ProcessSnapshot, projectRoot: string): boolean {
   if (!nameIs(process, "node")) return false;
-
-  const command = commandOf(process).replaceAll('"', "");
+  const args = processArguments(process.commandLine ?? "");
+  const entry = args[1] === "--" ? 2 : 1;
+  const script = normalized(args[entry] ?? "");
   const root = normalized(projectRoot);
-  return command.includes(`${root}/dist/stdio.js`) ||
-    (command.includes(`${root}/scripts/launch.mjs`) && /(?:^|\s)stdio(?:\s|$)/u.test(command));
+  return script === `${root}/dist/stdio.js` ||
+    (script === `${root}/scripts/launch.mjs` && args[entry + 1] === "stdio");
 }
 
 export function isManagedTunnelClient(process: ProcessSnapshot, options: TunnelProcessOptions): boolean {
-  const command = commandOf(process);
-  const profileDir = normalized(options.profileDir);
-  return nameIs(process, "tunnel-client") &&
-    /(?:^|\s)run(?:\s|$)/u.test(command) &&
-    command.includes(`--profile ${normalized(options.profileName)}`) &&
-    command.includes(`--profile-dir ${profileDir}`);
+  if (!nameIs(process, "tunnel-client")) return false;
+  const args = processArguments(process.commandLine ?? "");
+  const option = (flag: string): string | undefined => {
+    const indexes = args.flatMap((arg, index) => arg === flag ? [index] : []);
+    return indexes.length === 1 ? args[indexes[0]! + 1] : undefined;
+  };
+  return args[1] === "run"
+    && normalized(option("--profile") ?? "") === normalized(options.profileName)
+    && normalized(option("--profile-dir") ?? "") === normalized(options.profileDir);
 }
 
 function byId(processes: ProcessSnapshot[]): Map<number, ProcessSnapshot> {
@@ -176,8 +209,18 @@ export function classifyProcessSnapshot(
     reasons.push(`unclassified KAI stdio process(es) under current tunnel: ${unclassifiedKaiPids.join(", ")}`);
   }
 
+  const codexServers = processes.filter((process) => nameIs(process, "codex")
+    && processArguments(process.commandLine ?? "")[1] === "app-server"
+    && currentTunnelDescendants.has(process.processId));
+  const codexWorkerPids: number[] = [], codexProductSidecarPids: number[] = [];
+  for (const process of codexServers) {
+    const lineage = ancestors(process, processesById);
+    (currentChains.some((chain) => lineage.includes(chain.nodePid)) ? codexWorkerPids : codexProductSidecarPids).push(process.processId);
+  }
   return {
     managedTunnelPids,
+    codexWorkerPids,
+    codexProductSidecarPids,
     currentChains,
     staleChains,
     unclassifiedKaiPids,
@@ -226,9 +269,9 @@ export function planManagedTunnel(
   }
 
   return {
-    action: hasCurrent ? "restart" : "connect",
+    action: classification.managedTunnelPids.length === 1 ? "restart" : "connect",
     cleanupChains: classification.staleChains,
-    stopManagedTunnel: hasCurrent,
+    stopManagedTunnel: classification.managedTunnelPids.length === 1,
     connect: true,
   };
 }

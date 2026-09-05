@@ -1,5 +1,5 @@
 import { loadConfig } from "./config.js";
-import { DshRuntimeManager } from "./dsh-runtime.js";
+import { CodexRuntimeManager } from "./codex-runtime.js";
 import { DurableStore } from "./durable-store.js";
 import { HostHttpServer } from "./http-server.js";
 import { MemoryService } from "./memory.js";
@@ -13,7 +13,7 @@ const stateRootLease = await acquireStateRootLease(config.stateRoot);
 const store = new DurableStore(config.stateRoot);
 const projects = new ProjectRegistry(store);
 const memory = new MemoryService(store, config.maxContextCharacters);
-const runtime = new DshRuntimeManager(config);
+const runtime = new CodexRuntimeManager(config);
 const orchestrator = new TaskOrchestrator(config, store, projects, memory, runtime);
 const http = new HostHttpServer(config, orchestrator);
 
@@ -27,7 +27,7 @@ process.stdout.write(
     mcp: `http://${config.bindHost}:${config.port}/mcp`,
     health: `http://${config.bindHost}:${config.port}/healthz`,
     stateRoot: config.stateRoot,
-    runtime: "dsh-sdk-jsonrpc",
+    runtime: "codex-app-server-stdio",
     workerModel: config.workerModel,
   })}\n`,
 );

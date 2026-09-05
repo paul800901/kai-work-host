@@ -32,18 +32,6 @@ const components = Object.entries(lock.packages)
   })
   .sort((left, right) => `${left.name}@${left.version}`.localeCompare(`${right.name}@${right.version}`));
 
-const pin = JSON.parse(await readFile(path.join(root, "config", "dsh-pin.json"), "utf8"));
-components.push({
-  type: "application",
-  name: "DeepSeek Harness",
-  version: pin.version,
-  purl: `pkg:github/deepseek-ai/deepseek-harness@${pin.commit}`,
-  scope: "required",
-  licenses: [{ license: { id: "MIT" } }],
-  externalReferences: [{ type: "vcs", url: pin.repository }],
-  properties: [{ name: "kai:git-commit", value: pin.commit }],
-});
-
 const bom = {
   bomFormat: "CycloneDX",
   specVersion: "1.5",

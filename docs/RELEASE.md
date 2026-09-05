@@ -3,8 +3,8 @@
 ## Public-release gates
 
 1. Start from a clean Git commit on the intended release branch.
-2. Confirm `package.json`, `src/version.ts`, and `config/dsh-pin.json` agree.
-3. Run `npm ci` and `npm run validate` with the exact built DSH pin.
+2. Confirm package/Host versions agree and the Codex dependency matches `src/codex-pin.ts`.
+3. Run `npm ci` and `npm run validate` in an isolated tree with no live Host.
 4. Run `npm run release:sbom` and review license changes.
 5. Run `npm run release:scan` and inspect the release tree for local state.
 6. Run a clean Windows package/install/verify smoke without OAuth, a tunnel,
@@ -24,7 +24,7 @@ and live Luna smoke are external actions and require separate authorization.
   credentials, tunnel IDs/keys, project paths, runtime state, or memory.
 - Offline/binary dependency bundles are a separate release class. They require
   regenerated notices and an SBOM for every vendored binary, including
-  platform `sharp/libvips` packages and the complete DSH closure.
+  platform `sharp/libvips` packages and the official Codex native packages.
 
 ## Reproducibility
 

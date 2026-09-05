@@ -4,7 +4,7 @@ import type {
   RuntimeEventSummary,
   WorkerRunResult,
   WorkerRuntimeControl,
-} from "./dsh-runtime.js";
+} from "./worker-runtime.js";
 import { errorMessage, HostError } from "./errors.js";
 import { newId, sha256 } from "./ids.js";
 import type { MemoryService } from "./memory.js";
@@ -23,7 +23,7 @@ import type {
   TokenUsageBreakdown,
 } from "./types.js";
 
-const VERSION = "0.3.1";
+const VERSION = "0.4.0";
 const MAX_TASK_DIRECTIVE_CHARACTERS = 12_000;
 const MAX_STORED_AGENT_MESSAGE_CHARACTERS = 16_000;
 const ACTIVE_TASK_STATUSES = new Set<TaskStatus>(["queued", "starting", "running"]);
@@ -76,6 +76,8 @@ export class TaskOrchestrator {
   private initialized = false;
   private readonly operationLocks = new Map<string, Promise<void>>();
   private readonly cancelledRuns = new Set<string>();
+  private readonly executions = new Set<Promise<void>>();
+  private stopping = false;
 
   constructor(
     private readonly config: HostConfig,
@@ -86,6 +88,7 @@ export class TaskOrchestrator {
   ) {}
 
   async initialize(): Promise<void> {
+    if (this.stopping) throw new HostError("runtime_stopping", "KAI Host is stopping");
     if (this.initialized) return;
     await this.store.initialize();
     await this.runtime.prepare();
@@ -93,7 +96,9 @@ export class TaskOrchestrator {
   }
 
   async shutdown(): Promise<void> {
+    this.stopping = true;
     await this.runtime.shutdown();
+    await Promise.allSettled([...this.executions]);
   }
 
   async hostStatus(): Promise<Record<string, unknown>> {
@@ -110,7 +115,7 @@ export class TaskOrchestrator {
       highLevelAuthority: "webgpt_sol",
       localWorker: {
         model: this.config.workerModel,
-        provider: this.config.dshProvider,
+        provider: "openai",
         effort: this.config.workerEffort,
         planner: false,
       },
@@ -120,10 +125,10 @@ export class TaskOrchestrator {
       taskCounts: countBy(tasks.map((task) => task.status)),
       capabilities: [
         "durable_host_project_task",
-        "dsh_named_session_resume",
+        "codex_thread_resume",
         "multi_turn_followup",
         "wait_and_interrupt",
-        "l0_l1_l2_context",
+        "task_only_context_no_automatic_memory",
         "file_sandbox_and_local_tools",
         "diff_and_execution_receipt",
         "no_uncertain_turn_replay",
@@ -139,11 +144,11 @@ export class TaskOrchestrator {
         "git_push",
       ],
       policyBoundaries: {
-        fileAccess: "dsh-sandbox",
-        toolNetworkAccess: "model-policy-only",
+        fileAccess: "codex-sandbox",
+        toolNetworkAccess: "codex-sandbox",
         externalEffects: "not_exposed",
       },
-      codexProductRuntimeUsed: false,
+      codexProductRuntimeUsed: true,
       version: VERSION,
     };
   }
@@ -227,8 +232,7 @@ export class TaskOrchestrator {
       };
       await this.store.createTask(task);
       await this.store.completeTaskRequest(taskId, "start", input.requestId, { taskId, runId });
-      void this.executeTurn(taskId, runId, { includeContext: true, recoveryContinuation: false })
-        .catch(() => undefined);
+      this.scheduleTurn(taskId, runId, { includeContext: true, recoveryContinuation: false });
       return this.taskSummary(task, false);
     });
   }
@@ -247,7 +251,7 @@ export class TaskOrchestrator {
       if (input.mode === "steer") {
         throw new HostError(
           "steer_not_supported",
-          "The DSH SDK runtime has no prompt-cancel or live steer method. Wait for the turn or interrupt it, then send a new turn.",
+          "This bridge accepts explicit new turns. Wait for completion or interrupt the current turn before continuing.",
         );
       }
       if (ACTIVE_TASK_STATUSES.has(task.status)) {
@@ -316,11 +320,11 @@ export class TaskOrchestrator {
         this.executionMode(binding.fast ?? this.defaultFast()),
         prompt,
       ].join("\n\n");
-      void this.executeTurn(task.taskId, runId, {
+      this.scheduleTurn(task.taskId, runId, {
         includeContext: task.runtimeBinding === undefined || task.runtimeBinding === null,
         recoveryContinuation: recovering,
         prompt,
-      }).catch(() => undefined);
+      });
       const result = { taskId: task.taskId, runId, mode: "new_turn" };
       await this.store.completeTaskRequest(task.taskId, "followup", input.requestId, result);
       return { ...result, duplicate: false };
@@ -430,6 +434,12 @@ export class TaskOrchestrator {
       recentEvents: events,
       eventSequence: task.eventSequence,
     };
+  }
+
+  private scheduleTurn(taskId: string, runId: string, options: { includeContext: boolean; recoveryContinuation: boolean; prompt?: string }): void {
+    const execution = this.executeTurn(taskId, runId, options);
+    this.executions.add(execution);
+    void execution.finally(() => this.executions.delete(execution)).catch(() => undefined);
   }
 
   private async executeTurn(
@@ -548,8 +558,15 @@ export class TaskOrchestrator {
       taskId,
       (task) => {
         const run = this.requireRun(task, runId);
+        if (event.type === "session/ready" && typeof event.data.sessionId === "string") {
+          if (task.runtimeBinding?.engine !== "codex-app-server-stdio" || run.runtimeBinding?.engine !== "codex-app-server-stdio") {
+            throw new HostError("runtime_binding_invalid", "Cannot attach a Codex thread to a legacy binding");
+          }
+          task.runtimeBinding.sessionId = event.data.sessionId;
+          run.runtimeBinding.sessionId = event.data.sessionId;
+        }
         if (event.type === "turn/start") {
-          const runtimeTurn = `dsh:${String(event.data.turn ?? runId)}`;
+          const runtimeTurn = String(event.data.turn ?? runId);
           run.turnId = runtimeTurn;
           run.status = "inProgress";
           task.status = "running";
@@ -613,9 +630,6 @@ export class TaskOrchestrator {
       `receipt-${runId}.json`,
       `${JSON.stringify(receipt, null, 2)}\n`,
     );
-    const episodeId = `episode_${sha256(`${taskId}:${runId}`).slice(0, 24)}`;
-    const episodeArtifacts = [runtimeArtifact, diffArtifact, receiptPath]
-      .filter((value): value is string => value !== null);
     await this.store.transitionTask(
       taskId,
       (current) => {
@@ -641,15 +655,6 @@ export class TaskOrchestrator {
         runtimeArtifact,
         diffArtifact,
         totalTokens: usage.incremental?.totalTokens ?? null,
-      },
-      async (current) => {
-        await this.memory.recordEpisode(
-          current,
-          result.status,
-          result.validation,
-          episodeArtifacts,
-          episodeId,
-        );
       },
     );
   }
@@ -689,7 +694,6 @@ export class TaskOrchestrator {
       `receipt-${runId}.json`,
       `${JSON.stringify(receipt, null, 2)}\n`,
     );
-    const episodeId = `episode_${sha256(`${taskId}:${runId}`).slice(0, 24)}`;
     await this.store.transitionTask(
       taskId,
       (current) => {
@@ -706,9 +710,6 @@ export class TaskOrchestrator {
       },
       "turn.completed",
       { runId, status, error: message, receiptArtifact: receiptPath },
-      async (current) => {
-        await this.memory.recordEpisode(current, status, [], [receiptPath], episodeId);
-      },
     );
   }
 
@@ -803,6 +804,9 @@ export class TaskOrchestrator {
     input: Pick<StartTaskInput, "model" | "effort" | "fast">,
   ): RuntimeBinding {
     const prior = task.runtimeBinding ?? null;
+    if (prior?.engine === "dsh-sdk-jsonrpc") {
+      throw new HostError("legacy_session_requires_new_task", "This task belongs to the retired DSH runtime. Its records are preserved; start a new explicitly scoped Codex task. No history or uncertain turn was replayed.");
+    }
     return this.newRuntimeBinding(task.taskId, {
       model: this.effectiveWorkerModel(input.model ?? prior?.model),
       effort: this.effectiveWorkerEffort(input.effort ?? prior?.effort),
@@ -813,17 +817,17 @@ export class TaskOrchestrator {
 
   private newRuntimeBinding(
     taskId: string,
-    selection: { model: string; effort: RuntimeEffort; fast: boolean; sessionId?: string | undefined },
+    selection: { model: string; effort: RuntimeEffort; fast: boolean; sessionId?: string | null | undefined },
   ): RuntimeBinding {
     return {
       schemaVersion: 1,
-      engine: "dsh-sdk-jsonrpc",
-      provider: this.config.dshProvider,
+      engine: "codex-app-server-stdio",
+      provider: "openai",
       model: selection.model,
       effort: selection.effort,
       fast: selection.fast,
-      profile: this.config.dshProfile,
-      sessionId: selection.sessionId ?? `kai-${taskId}`,
+      profile: "kai-executor",
+      sessionId: selection.sessionId ?? null,
     };
   }
 
@@ -874,7 +878,7 @@ export class TaskOrchestrator {
     if (permissionProfile === "danger-full-access" && !networkAccess) {
       throw new HostError(
         "danger_full_access_requires_network_authorization",
-        "DSH file sandbox cannot provide operating-system network isolation in danger-full-access; authorize network or use workspace-write",
+        "Full access cannot provide operating-system network isolation; authorize network or use workspace-write",
       );
     }
   }
@@ -986,7 +990,7 @@ function normalizeUsage(value: TokenUsageBreakdown): TokenUsageBreakdown {
   };
 }
 
-function withCumulativeUsage(
+export function withCumulativeUsage(
   task: TaskRecord,
   runId: string,
   usage: RunUsageSummary,
@@ -1004,7 +1008,7 @@ function withCumulativeUsage(
   };
   for (const turn of task.turns) {
     const value = turn.runId === runId ? incremental : turn.usage?.incremental;
-    if (value === undefined || value === null) continue;
+    if (value === undefined || value === null) return { ...usage, incremental, cumulative: null };
     const normalized = normalizeUsage(value);
     total.inputTokens += normalized.inputTokens;
     total.uncachedInputTokens = total.inputTokens;

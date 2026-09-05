@@ -1,7 +1,7 @@
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 import { loadConfig } from "./config.js";
-import { DshRuntimeManager } from "./dsh-runtime.js";
+import { CodexRuntimeManager } from "./codex-runtime.js";
 import { DurableStore } from "./durable-store.js";
 import { MemoryService } from "./memory.js";
 import { buildMcpServer } from "./mcp-server.js";
@@ -15,7 +15,7 @@ const stateRootLease = await acquireStateRootLease(config.stateRoot);
 const store = new DurableStore(config.stateRoot);
 const projects = new ProjectRegistry(store);
 const memory = new MemoryService(store, config.maxContextCharacters);
-const runtime = new DshRuntimeManager(config);
+const runtime = new CodexRuntimeManager(config);
 const orchestrator = new TaskOrchestrator(config, store, projects, memory, runtime);
 const mcpRuntime = new HostMcpRuntime(orchestrator, config);
 

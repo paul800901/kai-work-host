@@ -459,7 +459,7 @@ function registerTerminalTools(server: McpServer, runtime: HostMcpRuntime): void
     "terminal_cancel",
     {
       title: "Cancel terminal command",
-      description: "Cancel an owned direct terminal process without affecting the KAI/DSH Luna session.",
+      description: "Cancel an owned direct terminal process without affecting the KAI/Codex Luna session.",
       inputSchema: z.object({ job_id: z.string().uuid(), web_session_id: sessionId.optional() }),
       outputSchema: terminalOutputSchema,
       annotations: writeAnnotations(true, true),

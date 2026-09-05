@@ -4,11 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
-const [manifest, pin, sbom, runtimePin, version] = await Promise.all([
+const [manifest, sbom, runtimePin, version] = await Promise.all([
   readJson(path.join(root, "package.json")),
-  readJson(path.join(root, "config", "dsh-pin.json")),
   readJson(path.join(root, "sbom.cdx.json")),
-  import("../../src/dsh-pin.ts"),
+  import("../../src/codex-pin.ts"),
   import("../../src/version.ts"),
 ]);
 
@@ -16,10 +15,7 @@ assert.equal(manifest.name, version.HOST_PACKAGE_NAME);
 assert.equal(manifest.version, version.HOST_VERSION);
 assert.equal(manifest.license, "MIT");
 assert.equal(manifest.private, true, "private:true prevents accidental npm publication; it does not restrict the MIT source license");
-assert.equal(pin.version, runtimePin.DSH_VERSION);
-assert.equal(pin.commit, runtimePin.DSH_COMMIT);
-assert.equal(pin.repository, runtimePin.DSH_REPOSITORY);
-assert.equal(pin.package_manager, runtimePin.DSH_PACKAGE_MANAGER);
+assert.equal(manifest.dependencies["@openai/codex"], runtimePin.CODEX_VERSION);
 assert.equal(version.PUBLIC_TOOL_COUNT, 18);
 assert.equal(version.RAW_TOOL_COUNT, 19);
 assert.equal(sbom.bomFormat, "CycloneDX");
@@ -28,10 +24,8 @@ assert.equal(sbom.metadata?.component?.name, manifest.name);
 assert.equal(sbom.metadata?.component?.version, manifest.version);
 assert.ok(
   sbom.components?.some((component) =>
-    component.name === "DeepSeek Harness" &&
-    component.version === pin.version &&
-    component.properties?.some((property) => property.name === "kai:git-commit" && property.value === pin.commit)),
-  "SBOM must include the exact DSH pin",
+    component.name === "@openai/codex" && component.version === runtimePin.CODEX_VERSION),
+  "SBOM must include the exact official Codex package",
 );
 for (const dependency of Object.keys(manifest.dependencies ?? {})) {
   assert.ok(
@@ -62,7 +56,7 @@ process.stdout.write(`${JSON.stringify({
   package: manifest.name,
   version: manifest.version,
   license: manifest.license,
-  dsh: { version: pin.version, commit: pin.commit },
+  codex: { version: runtimePin.CODEX_VERSION },
   publicTools: version.PUBLIC_TOOL_COUNT,
   rawTools: version.RAW_TOOL_COUNT,
 })}\n`);

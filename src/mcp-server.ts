@@ -23,7 +23,7 @@ export function buildMcpServer(
     {
       instructions: [
         "Use codexluna_init before the first codexluna_start in each ChatGPT conversation.",
-        "WebGPT Sol is the only high-level planner. KAI Work Host runs local Luna through DSH and automatically compiles concise L0/L1/L2 project memory.",
+        "WebGPT Sol is the only high-level planner. KAI Work Host runs local Luna through the official Codex App Server with task-only context; no automatic cross-task memory is injected.",
         "Use terminal_exec for ordinary commands; continue a running job with terminal_status instead of rerunning it.",
         "Use file_image_preview when the user asks to visibly display a local image.",
         "The public model-visible contract is exactly 18 tools. file_image_preview_restore is app-only and private.",

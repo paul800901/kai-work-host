@@ -7,14 +7,14 @@ import test from "node:test";
 
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
-import { countActiveTaskProcesses } from "../src/dsh-runtime.js";
+import { countActiveTaskProcesses } from "../src/worker-runtime.js";
 import type {
   RuntimeEventSummary,
   WorkerRunRequest,
   WorkerRunResult,
   WorkerRuntimeControl,
   WorkerRuntimeStatus,
-} from "../src/dsh-runtime.js";
+} from "../src/worker-runtime.js";
 import { HostError } from "../src/errors.js";
 import { CompatibilityService } from "../src/compat/compatibility-service.js";
 import { CompatibilityStateStore } from "../src/compat/bridge-state.js";
@@ -92,10 +92,10 @@ function currentInstruction(prompt: string): string {
   return prompt;
 }
 
-class FakeDshRuntime implements WorkerRuntimeControl {
+class FakeCodexRuntime implements WorkerRuntimeControl {
   readonly prompts: Array<{
     taskId: string;
-    sessionId: string;
+    sessionId: string | null;
     model: string;
     effort: RuntimeEffort;
     fast: boolean;
@@ -112,29 +112,29 @@ class FakeDshRuntime implements WorkerRuntimeControl {
 
   status(): Promise<WorkerRuntimeStatus> {
     return Promise.resolve({
-      engine: "dsh-sdk-jsonrpc",
+      engine: "codex-app-server-stdio",
       profile: {
         ready: true,
-        dshVersion: "0.1.1-rc.2",
-        dshCommit: "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
+        codexVersion: "0.153.3",
         profileDir: "test-profile",
-        profileHash: "test-hash",
         credentialConfigured: true,
-        credentialKind: "grant",
+        credentialKind: "chatgpt",
       },
-      provider: "openai-codex",
+      provider: "openai",
       model: "gpt-5.6-luna",
       effort: "high",
       activeTaskProcesses: this.held.size,
-      codexProductRuntimeUsed: false,
-      networkIsolation: "model-policy-only",
+      codexProductRuntimeUsed: true,
+      networkIsolation: "codex-sandbox",
     });
   }
 
   async runTurn(request: WorkerRunRequest): Promise<WorkerRunResult> {
+    const sessionId = request.sessionId ?? `codex-test-${request.taskId}`;
+    await request.onEvent(event("session/ready", 0, { sessionId }));
     this.prompts.push({
       taskId: request.taskId,
-      sessionId: request.sessionId,
+      sessionId,
       model: request.model,
       effort: request.effort,
       fast: request.fast,
@@ -146,7 +146,7 @@ class FakeDshRuntime implements WorkerRuntimeControl {
     await request.onEvent(event("turn/start", 1, { turn: this.prompts.length }));
     const instruction = currentInstruction(request.prompt);
     if (instruction.includes("[crash]")) {
-      throw new HostError("runtime_exited", "Simulated DSH process loss");
+      throw new HostError("runtime_exited", "Simulated Codex process loss");
     }
     if (instruction.includes("[hold]")) {
       return new Promise<WorkerRunResult>((_resolve, reject) => {
@@ -154,7 +154,7 @@ class FakeDshRuntime implements WorkerRuntimeControl {
       });
     }
     await request.onEvent(event("request/context", 2, {
-      provider: "openai-codex",
+      provider: "openai",
       model: "gpt-5.6-luna",
       contextWindow: 272_000,
     }));
@@ -282,7 +282,7 @@ test("WebGPT fast mode selects compact KAI context without claiming a provider f
   assert.equal(effectiveContextCharacterCap(6_000, true), 6_000);
 });
 
-test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, interruption, and no-replay recovery", { timeout: 300_000 }, async () => {
+test("durable WebGPT-to-Codex-Luna lifecycle keeps one session, thin follow-ups, interruption, and no-replay recovery", { timeout: 300_000 }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), "kai-work-host-"));
   const stateRoot = path.join(root, "state");
   const projectRoot = path.join(root, "project");
@@ -293,16 +293,11 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
     bindHost: "127.0.0.1",
     port: 8787,
     stateRoot,
-    dshRoot: path.join(root, "dsh-install"),
-    dshHome: path.join(stateRoot, "dsh"),
-    dshCliPath: path.join(root, "dsh-install", "apps", "cli", "lib", "bin.js"),
-    dshSdkPluginRoot: path.join(root, "dsh-install", "packages", "sdk", "server"),
-    dshProfile: "kai-work-host",
-    dshProvider: "openai-codex",
+    codexHome: path.join(stateRoot, "codex"),
+    codexCliPath: path.join(root, "codex.exe"),
     workerModel: "gpt-5.6-luna",
     workerEffort: "high",
     executionProfile: "lean",
-    workerMaxOutputTokens: 32_768,
     runtimeStartupTimeoutMs: 5_000,
     runtimeTurnTimeoutMs: 30_000,
     bearerToken: null,
@@ -312,7 +307,7 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
   const store = new DurableStore(stateRoot);
   const projects = new ProjectRegistry(store);
   const memory = new MemoryService(store, config.maxContextCharacters);
-  const runtime = new FakeDshRuntime();
+  const runtime = new FakeCodexRuntime();
   const orchestrator = new TaskOrchestrator(config, store, projects, memory, runtime);
 
   try {
@@ -381,7 +376,7 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
     const normalTaskId = taskIdFrom(normal);
     const normalDone = await waitForTask(orchestrator, normalTaskId, (task) => task.status === "completed");
     assert.equal(record(normalDone.task).lastAgentMessage, "Fake Luna completed the requested work.");
-    assert.equal((await store.listEpisodes(project.projectId, 20)).length, 1);
+    assert.equal((await store.listEpisodes(project.projectId, 20)).length, 0);
     const completedRuntime = record((await orchestrator.hostStatus()).runtime);
     assert.equal(completedRuntime.activeTaskProcesses, 0);
     const duplicate = await orchestrator.startTask({
@@ -406,7 +401,7 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
       normalTaskId,
       (task) => task.status === "completed" && Number(task.eventSequence) > Number(record(normalDone.task).eventSequence),
     );
-    assert.equal((await store.listEpisodes(project.projectId, 20)).length, 2);
+    assert.equal((await store.listEpisodes(project.projectId, 20)).length, 0);
     const taskPrompts = runtime.prompts.filter((entry) => entry.taskId === normalTaskId);
     assert.equal(taskPrompts.length, 2);
     assert.equal(taskPrompts[0]?.sessionId, taskPrompts[1]?.sessionId);
@@ -420,7 +415,7 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
       assert.equal(turn.status, "completed");
       assert.ok(existsSync(String(turn.receiptArtifact)));
       assert.ok(existsSync(String(turn.diffArtifact)));
-      assert.equal(record(turn.runtimeBinding).engine, "dsh-sdk-jsonrpc");
+      assert.equal(record(turn.runtimeBinding).engine, "codex-app-server-stdio");
     }
     const secondUsage = record(turns[1]?.usage);
     assert.equal(record(secondUsage.incremental).inputTokens, 120);
@@ -457,14 +452,14 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
       reason: "Test explicit interruption.",
     });
     await waitForTask(orchestrator, heldTaskId, (task) => task.status === "interrupted");
-    assert.equal((await store.listEpisodes(project.projectId, 20)).length, 3);
+    assert.equal((await store.listEpisodes(project.projectId, 20)).length, 0);
     const interruptedRuntime = record((await orchestrator.hostStatus()).runtime);
     assert.equal(interruptedRuntime.activeTaskProcesses, 0);
 
     const crashed = await orchestrator.startTask({
       requestId: "start-crash-task-001",
       projectId: project.projectId,
-      goal: "[crash] Simulate DSH runtime loss.",
+      goal: "[crash] Simulate Codex runtime loss.",
       acceptanceCriteria: [],
       constraints: [],
       networkAccess: false,
@@ -488,20 +483,20 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
       mode: "new_turn",
     });
     await waitForTask(orchestrator, crashedTaskId, (task) => task.status === "completed");
-    assert.equal((await store.listEpisodes(project.projectId, 20)).length, 4);
+    assert.equal((await store.listEpisodes(project.projectId, 20)).length, 0);
     const recoveredPrompts = runtime.prompts.filter((entry) => entry.taskId === crashedTaskId);
     assert.equal(recoveredPrompts.length, 2);
     assert.equal(recoveredPrompts[0]?.sessionId, recoveredPrompts[1]?.sessionId);
     assert.match(recoveredPrompts[1]?.prompt ?? "", /prior process ended with an uncertain turn/u);
 
     const episodes = await store.listEpisodes(project.projectId, 20);
-    assert.ok(episodes.length >= 4);
+    assert.equal(episodes.length, 0, "turn receipts must not be duplicated into automatic L1 episodes");
     assert.equal(new Set(episodes.map((episode) => episode.episodeId)).size, episodes.length);
     assert.ok(episodes.every((episode) => episode.eventRange.to >= 1));
 
     const status = await orchestrator.hostStatus();
-    assert.equal(status.codexProductRuntimeUsed, false);
-    assert.equal(record(status.runtime).engine, "dsh-sdk-jsonrpc");
+    assert.equal(status.codexProductRuntimeUsed, true);
+    assert.equal(record(status.runtime).engine, "codex-app-server-stdio");
 
     const recoveryCompatibility = new CompatibilityService(orchestrator, config);
     const recoveryWebSessionId = "webgpt-start-reservation-recovery";
@@ -679,10 +674,14 @@ test("durable WebGPT-to-DSH-Luna lifecycle keeps one session, thin follow-ups, i
       const initializedData = record(initialized.structuredContent);
       assert.equal(initializedData.web_session_id, webSessionId);
       assert.equal(initializedData.request_id, "init-fixture-001");
+      const sessionPolicy = record(initializedData.session_policy);
+      assert.equal(sessionPolicy.version, 3);
+      assert.equal(sessionPolicy.kai_l1_episodic_memory, false);
+      assert.equal(sessionPolicy.kai_l2_evidence_memory, false);
       assert.deepEqual(record(initializedData.kai_memory), {
         l0: true,
-        l1: true,
-        l2: true,
+        l1: false,
+        l2: false,
         project_id: "fixture_project",
       });
       const duplicateInitialization = await client.callTool({

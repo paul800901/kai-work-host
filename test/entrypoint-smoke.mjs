@@ -34,8 +34,7 @@ const child = spawn(process.execPath, [path.resolve("dist/index.js")], {
     KAI_WORK_HOST_BIND: "127.0.0.1",
     KAI_WORK_HOST_PORT: String(port),
     KAI_WORK_HOST_HOME: stateRoot,
-    KAI_WORK_HOST_DSH_HOME: path.join(stateRoot, "dsh"),
-    KAI_WORK_HOST_DSH_PROFILE: "kai-work-host-entrypoint-smoke",
+    KAI_WORK_HOST_CODEX_HOME: path.join(stateRoot, "codex"),
     KAI_WORK_HOST_RUNTIME_STARTUP_MS: String(startupTimeoutMs),
   },
 });
@@ -67,10 +66,10 @@ try {
   assert.equal(readiness.service, "kai-work-host");
   assert.equal(readiness.mcp, `http://127.0.0.1:${port}/mcp`);
   assert.equal(readiness.workerModel, "gpt-5.6-luna");
-  assert.equal(readiness.runtime, "dsh-sdk-jsonrpc");
+  assert.equal(readiness.runtime, "codex-app-server-stdio");
   const response = await fetch(`http://127.0.0.1:${port}/healthz`);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true, service: "kai-work-host", version: "0.3.1" });
+  assert.deepEqual(await response.json(), { ok: true, service: "kai-work-host", version: "0.4.0" });
   process.stdout.write("KAI Work Host entrypoint and health route are ready.\n");
 } finally {
   if (child.exitCode === null) {

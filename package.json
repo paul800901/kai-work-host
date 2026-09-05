@@ -1,10 +1,10 @@
 {
   "name": "@kai/work-host",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "Durable WebGPT-to-local-Luna work host over MCP and an independent DSH SDK runtime.",
+  "description": "Thin WebGPT-to-local-Luna MCP bridge over the official Codex App Server.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/paul800901/kai-work-host.git"
@@ -18,7 +18,7 @@
     "agent-harness",
     "webgpt",
     "luna",
-    "dsh"
+    "codex"
   ],
   "engines": {
     "node": ">=24"
@@ -34,16 +34,17 @@
     "tunnel:connect": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/connect-managed-tunnel.ps1",
     "test": "tsx --test test/**/*.test.ts",
     "smoke:real:readonly": "node scripts/real-luna-readonly-smoke.mjs",
-    "smoke:dsh:keyless": "node scripts/probe-dsh-runtime.mjs",
+    "smoke:codex:keyless": "node scripts/probe-codex-runtime.mjs",
     "smoke:entrypoint": "node test/entrypoint-smoke.mjs",
     "smoke:stdio": "node test/stdio-entrypoint-smoke.mjs",
     "release:sbom": "node scripts/release/generate-sbom.mjs",
     "release:scan": "node scripts/release/scan-public-tree.mjs .",
     "release:verify": "node --import tsx scripts/release/verify-project.mjs",
     "release:package": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/release/create-release.ps1",
-    "validate": "npm run check && npm run test && npm run build && npm run release:verify && npm run release:scan && npm run smoke:dsh:keyless && npm run smoke:entrypoint && npm run smoke:stdio"
+    "validate": "npm run check && npm run test && npm run build && npm run release:verify && npm run release:scan && npm run smoke:codex:keyless && npm run smoke:entrypoint && npm run smoke:stdio"
   },
   "dependencies": {
+    "@openai/codex": "0.153.3",
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "sharp": "0.35.3",

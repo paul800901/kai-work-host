@@ -94,7 +94,6 @@ test("release and installer scripts reject source-tree output targets before pac
       "-InstallRoot",
       path.join(projectRoot, "install-test-output"),
       "-SkipValidation",
-      "-NoDshBootstrap",
     ],
     { encoding: "utf8" },
   );

@@ -6,10 +6,12 @@ param(
     [string]$TunnelClient,
     # The Host accepts Luna turns up to two hours; keep forwarding alive slightly longer.
     [string]$McpConnectionMaxTtl = "2h5m",
-    [switch]$Restart
+    [switch]$Restart,
+    [switch]$ObserveOnly
 )
 
 $ErrorActionPreference = "Stop"
+if ($ObserveOnly -and $Restart) { throw "ObserveOnly cannot be combined with Restart." }
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $OutputEncoding = $utf8
 [Console]::InputEncoding = $utf8
@@ -71,9 +73,9 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $plannerPath = Join-Path $PSScriptRoot "..\dist\tunnel-process.js"
 
 function Get-ProcessSnapshot { return @(Get-CimInstance Win32_Process) }
-function Get-ProcessFromSnapshot { param([object[]]$Processes,[int]$ProcessId) return (@($Processes | Where-Object { [int]$_.ProcessId -eq $ProcessId }) | Select-Object -First 1) }
-function Get-ProcessIdentity { param([object]$Process,[string]$Kind) return [pscustomobject]@{ Kind=$Kind; ProcessId=[int]$Process.ProcessId; ParentProcessId=[int]$Process.ParentProcessId; CreationDate=[string]$Process.CreationDate; Name=[string]$Process.Name; CommandLine=[string]$Process.CommandLine } }
-function Test-ProcessIdentityMatches { param([object]$Identity,[object]$Process) if($null -eq $Process){return $false}; return ([int]$Process.ProcessId -eq [int]$Identity.ProcessId -and [int]$Process.ParentProcessId -eq [int]$Identity.ParentProcessId -and [string]$Process.CreationDate -eq [string]$Identity.CreationDate -and [string]$Process.Name -eq [string]$Identity.Name -and [string]$Process.CommandLine -eq [string]$Identity.CommandLine) }
+function Get-ProcessFromSnapshot { param([object[]]$Processes,[int]$ProcessId) if($ProcessId -le 0){return $null}; return (@($Processes | Where-Object { [int]$_.ProcessId -eq $ProcessId }) | Select-Object -First 1) }
+function Get-ProcessIdentity { param([object]$Process,[string]$Kind) if($null -eq $Process -or [int]$Process.ProcessId -le 0){throw 'Cannot record a missing process or PID 0.'}; return [pscustomobject]@{ Kind=$Kind; ProcessId=[int]$Process.ProcessId; ParentProcessId=[int]$Process.ParentProcessId; CreationDate=[string]$Process.CreationDate; Name=[string]$Process.Name; CommandLine=[string]$Process.CommandLine } }
+function Test-ProcessIdentityMatches { param([object]$Identity,[object]$Process) if($null -eq $Identity -or [int]$Identity.ProcessId -le 0 -or $null -eq $Process){return $false}; return ([int]$Process.ProcessId -eq [int]$Identity.ProcessId -and [int]$Process.ParentProcessId -eq [int]$Identity.ParentProcessId -and [string]$Process.CreationDate -eq [string]$Identity.CreationDate -and [string]$Process.Name -eq [string]$Identity.Name -and [string]$Process.CommandLine -eq [string]$Identity.CommandLine) }
 function Get-RecordedProcessIfStillPresent { param([object]$Identity,[object[]]$Processes) $current=Get-ProcessFromSnapshot -Processes $Processes -ProcessId ([int]$Identity.ProcessId); if($null -eq $current){return $null}; if(-not (Test-ProcessIdentityMatches -Identity $Identity -Process $current)){throw "Process identity changed for recorded PID $($Identity.ProcessId); refusing managed cleanup."}; return $current }
 function Get-DescendantProcesses { param([object[]]$Processes,[int]$RootProcessId) $pending=@($RootProcessId); $seen=@{}; $seen[$RootProcessId]=$true; $result=@(); while($pending.Count -gt 0){$parentProcessId=[int]$pending[0]; if($pending.Count -gt 1){$pending=@($pending[1..($pending.Count-1)])}else{$pending=@()}; foreach($child in @($Processes | Where-Object { [int]$_.ParentProcessId -eq $parentProcessId })){ $childProcessId=[int]$child.ProcessId; if(-not $seen.ContainsKey($childProcessId)){ $seen[$childProcessId]=$true; $result += $child; $pending += $childProcessId } } }; return @($result) }
 function Get-ProcessPlan {
@@ -92,6 +94,7 @@ function Get-ProcessPlan {
 }
 function Get-ChainIdentities {
     param([object]$Chain,[object[]]$Processes)
+    if($null -eq $Chain -or [int]$Chain.launcherPid -le 0 -or [int]$Chain.nodePid -le 0){throw 'Cannot clean up a missing KAI chain or PID 0.'}
     $launcher = Get-ProcessFromSnapshot -Processes $Processes -ProcessId ([int]$Chain.launcherPid)
     $node = Get-ProcessFromSnapshot -Processes $Processes -ProcessId ([int]$Chain.nodePid)
     if($null -eq $launcher -or $null -eq $node){ throw "A planned KAI stdio chain disappeared before cleanup; refusing managed cleanup." }
@@ -128,7 +131,7 @@ function Get-TunnelFunctionalHealth {
     if ($Status.process -and $Status.process.log_path) { $logPath = [string]$Status.process.log_path }
     elseif ($Status.local -and $Status.local.log -and $Status.local.log.path) { $logPath = [string]$Status.local.log.path }
     if (-not $logPath -or -not (Test-Path -LiteralPath $logPath -PathType Leaf)) {
-        return [pscustomobject]@{ poisoned=$false; deadlineFailures=0; upstreamNoResponse=0; inspected=0; logPath=$logPath }
+        return [pscustomobject]@{ poisoned=$false; healthy=$null; deadlineFailures=0; upstreamNoResponse=0; inspected=0; logPath=$logPath }
     }
     $startedAt = $null
     if ($Status.process -and $Status.process.started_at) {
@@ -141,6 +144,7 @@ function Get-TunnelFunctionalHealth {
     $deadlineFailures = 0
     $upstreamNoResponse = 0
     $inspected = 0
+    $successfulResponses = 0
     foreach ($line in @(Get-Content -LiteralPath $logPath -Tail 700 -ErrorAction SilentlyContinue)) {
         if (-not $line.Trim()) { continue }
         try { $event = $line | ConvertFrom-Json } catch { continue }
@@ -152,12 +156,14 @@ function Get-TunnelFunctionalHealth {
             } catch {}
         }
         $inspected += 1
+        if ($event.upstream_response_received -eq $true -and -not $event.failure_source) { $successfulResponses += 1 }
         $message = if ($event.msg) { [string]$event.msg } else { "" }
         if ($message -match '(?i)command response deadline reached') { $deadlineFailures += 1 }
         if ([string]$event.failure_source -eq 'client_internal' -and $event.upstream_response_received -eq $false) { $upstreamNoResponse += 1 }
     }
     return [pscustomobject]@{
         poisoned = [bool]($deadlineFailures -gt 0 -or $upstreamNoResponse -ge 3)
+        healthy = if($deadlineFailures -gt 0 -or $upstreamNoResponse -ge 3){$false}elseif($successfulResponses -gt 0){$true}else{$null}
         deadlineFailures = $deadlineFailures
         upstreamNoResponse = $upstreamNoResponse
         inspected = $inspected
@@ -212,6 +218,24 @@ if(@($plan.ambiguousReasons).Count -gt 0){
     throw "Refusing managed tunnel change because process identity is ambiguous: $($plan.ambiguousReasons -join '; ')"
 }
 
+# Observation must exit before any cleanup, connect, environment or profile write.
+if ($ObserveOnly) {
+    $functional = Get-TunnelFunctionalHealth -Status $status
+    [pscustomobject]@{
+        ok = $true
+        alias = $Alias
+        state = if($status.ready -and $status.healthy){'observed-ready'}else{'observed-not-ready'}
+        mcpFunctionallyHealthy = $functional.healthy
+        functionalIssue = Format-FunctionalHealthIssue -Health $functional
+        tunnelClientCount = @($plan.managedTunnelPids).Count
+        kaiHostCount = @($plan.currentChains).Count
+        codexProductSidecarCount = @($plan.codexProductSidecarPids).Count
+        codexWorkerCount = @($plan.codexWorkerPids).Count
+        profileTtlMatches = $profileTtlMatches
+    } | ConvertTo-Json -Compress
+    exit 0
+}
+
 $staleIdentities = @()
 if(@($plan.staleChains).Count -gt 0){
     if(-not $Restart){ throw "Proven stale/orphan KAI stdio chains exist; rerun with explicit -Restart to clean them." }
@@ -233,10 +257,7 @@ if($status.process_running){
         throw "The managed tunnel reported PID $tunnelProcessId, but that process was not found; refusing managed cleanup."
     }
     $tunnelDescendants = @(Get-DescendantProcesses -Processes $allProcesses -RootProcessId $tunnelProcessId)
-    $codexSidecars = @($tunnelDescendants | Where-Object {
-        $_.Name -match '(?i)^codex(\.exe)?$' -and
-        $_.CommandLine -match '(?i)\sapp-server\s*$'
-    })
+    $codexSidecars = @($plan.codexProductSidecarPids)
     $functionalHealth = Get-TunnelFunctionalHealth -Status $status
     $currentHostCount = @($plan.currentChains).Count
     $topologyReady = [bool]($status.process_running -and $status.ready -and $status.healthy -and $codexSidecars.Count -eq 0 -and $currentHostCount -eq 1)
@@ -249,12 +270,13 @@ if($status.process_running){
             ok = $true
             alias = $Alias
             state = "already-ready"
-            mcpFunctionallyHealthy = [bool](-not $functionalHealth.poisoned)
+            mcpFunctionallyHealthy = $functionalHealth.healthy
             functionalIssue = $functionalIssue
             mcpConnectionMaxTtl = $McpConnectionMaxTtl
             tunnelClientCount = @($plan.managedTunnelPids).Count
             kaiHostCount = $currentHostCount
             codexProductSidecarCount = 0
+            codexWorkerCount = @($plan.codexWorkerPids).Count
         } | ConvertTo-Json -Compress
         exit 0
     }
@@ -263,8 +285,10 @@ if($status.process_running){
     }
 
     $priorTunnelIdentity=Get-ProcessIdentity -Process $tunnelProcess -Kind 'tunnel'
-    $currentChain = @($plan.currentChains)[0]
-    $priorStdioIdentities=@(Get-ChainIdentities -Chain $currentChain -Processes $allProcesses)
+    $priorStdioIdentities=@()
+    if(@($plan.currentChains).Count -eq 1){
+        $priorStdioIdentities=@(Get-ChainIdentities -Chain @($plan.currentChains)[0] -Processes $allProcesses)
+    }
     $null=Invoke-TunnelJson -Arguments @('runtimes','stop',$Alias,'--json')
     $graceDeadline=[DateTime]::UtcNow.AddSeconds(5)
     do { $snap=Get-ProcessSnapshot; $oldTunnel=$null -ne (Get-RecordedProcessIfStillPresent -Identity $priorTunnelIdentity -Processes $snap); $remaining=@(Get-RemainingRecordedIdentities -Identities $priorStdioIdentities -Processes $snap); if(-not $oldTunnel -and $remaining.Count -eq 0){break}; if([DateTime]::UtcNow -ge $graceDeadline){break}; Start-Sleep -Milliseconds 250 } while($true)
@@ -334,11 +358,8 @@ do {
         $finalTunnelProcess=Get-ProcessFromSnapshot -Processes $finalProcesses -ProcessId $finalTunnelPid
         if($null -ne $finalTunnelProcess){
             $finalDescendants=@(Get-DescendantProcesses -Processes $finalProcesses -RootProcessId $finalTunnelPid)
-            $finalSidecars=@($finalDescendants | Where-Object {
-                $_.Name -match '(?i)^codex(\.exe)?$' -and
-                $_.CommandLine -match '(?i)\sapp-server\s*$'
-            })
             $finalPlan=Get-ProcessPlan -Processes $finalProcesses -CurrentTunnelPid $finalTunnelPid
+            $finalSidecars=@($finalPlan.codexProductSidecarPids)
             if($finalSidecars.Count -gt 0){throw "The tunnel started an unexpected Codex product sidecar."}
             if(@($finalPlan.staleChains).Count -gt 0){throw "A stale/orphan KAI stdio chain appeared during managed restart."}
             $finalFunctionalHealth = Get-TunnelFunctionalHealth -Status $finalStatus
@@ -365,9 +386,10 @@ if(-not $managedReady){
     ok = $true
     alias = $Alias
     state = "ready"
-    mcpFunctionallyHealthy = $true
+    mcpFunctionallyHealthy = $finalFunctionalHealth.healthy
     mcpConnectionMaxTtl = $McpConnectionMaxTtl
     tunnelClientCount = @($finalPlan.managedTunnelPids).Count
     kaiHostCount = $hostNodes.Count
     codexProductSidecarCount = $finalSidecars.Count
+    codexWorkerCount = @($finalPlan.codexWorkerPids).Count
 } | ConvertTo-Json -Compress

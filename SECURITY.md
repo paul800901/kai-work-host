@@ -2,7 +2,7 @@
 
 ## Supported version
 
-Security fixes are prepared for the current `0.3.x` line. Older local builds
+Security fixes are prepared for the current `0.4.x` line. Older local builds
 are unsupported unless a maintainer explicitly says otherwise.
 
 ## Report a vulnerability
@@ -25,9 +25,15 @@ cross a WebGPT conversation/Host instance boundary. Redact all secrets.
   deployment configuration are excluded from source and release artifacts.
 - Project registration is the authorization ceiling. A WebGPT turn can select
   only permissions already allowed for that exact project.
-- `network_access=false` is a model/task policy, not an operating-system
-  firewall. Do not describe it as network isolation.
-- DSH is pinned by version and Git commit and is prepared in an isolated home.
+- Luna commands use the official Codex sandbox. Windows uses its unelevated
+  backend in the worker process; no global firewall or administrator setup is
+  changed. Its network controls are environment-level only and native programs
+  can bypass them. Windows therefore retains the model-policy-only network
+  contract, not a claim of network isolation. Full access cannot enforce denial.
+- Direct MCP terminal execution is separate: its network setting is policy-only,
+  not an operating-system firewall. Do not describe it as network isolation.
+- Official Codex is version-pinned with an independent ChatGPT login home.
+  Automatic cross-task memory injection and Codex memory generation/use are off.
 - Provider limits and authorization failures fail closed; the Host must not
   rotate accounts, switch providers, or fall back to an API key to evade them.
 

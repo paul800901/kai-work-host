@@ -27,20 +27,6 @@ jobs:
           if ($env:GITHUB_REF_NAME -ne $expectedTag) {
             throw "Release tag mismatch: expected $expectedTag, received $env:GITHUB_REF_NAME."
           }
-      - name: Checkout the exact DSH pin
-        shell: pwsh
-        run: |
-          git clone --depth 1 --branch dsh-v0.1.1-rc.2 https://github.com/deepseek-ai/deepseek-harness.git "$env:RUNNER_TEMP\dsh"
-          $actual = git -C "$env:RUNNER_TEMP\dsh" rev-parse HEAD
-          if ($actual -ne 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e') {
-            throw "DSH pin mismatch: $actual"
-          }
-      - name: Build the exact DSH host libraries
-        shell: pwsh
-        working-directory: ${{ runner.temp }}\dsh
-        run: |
-          npx --yes pnpm@11.7.0 install --frozen-lockfile
-          npx --yes pnpm@11.7.0 run build:lib:host
       - run: npm run check
       - run: npm test
       - run: npm run build
@@ -49,8 +35,6 @@ jobs:
       - run: npm run release:sbom
       - name: Run the complete keyless Host contract
         shell: pwsh
-        env:
-          KAI_WORK_HOST_DSH_ROOT: ${{ runner.temp }}\dsh
         run: npm run validate
       - name: Confirm the committed SBOM is current
         shell: pwsh
@@ -82,8 +66,6 @@ jobs:
           & (Join-Path $releaseTree 'scripts\deploy\install-windows.ps1') `
             -InstanceId release-smoke `
             -BaseRoot $installBase `
-            -DshRoot (Join-Path $env:RUNNER_TEMP 'dsh') `
-            -NoDshBootstrap `
             -SkipValidation
           if ($LASTEXITCODE -ne 0) { throw 'Clean release installation failed.' }
           $installedRoot = Join-Path $installBase ("app\$packageVersion")

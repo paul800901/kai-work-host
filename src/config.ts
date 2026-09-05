@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { DSH_DIRECTORY_NAME } from "./dsh-pin.js";
 import type { ExecutionProfile, HostConfig, WorkerEffort } from "./types.js";
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -49,34 +49,17 @@ export function loadConfig(): HostConfig {
   }
 
   const stateRoot = path.resolve(process.env.KAI_WORK_HOST_HOME ?? defaultStateRoot());
-  const dshRoot = path.resolve(
-    process.env.KAI_WORK_HOST_DSH_ROOT ??
-      path.join(stateRoot, "dependencies", DSH_DIRECTORY_NAME),
-  );
-  const provider = process.env.KAI_WORK_HOST_DSH_PROVIDER ?? "openai-codex";
-  if (provider !== "openai-codex") {
-    throw new Error("KAI_WORK_HOST_DSH_PROVIDER must be openai-codex");
-  }
-  const outputTokens = integerEnv("KAI_WORK_HOST_MAX_OUTPUT_TOKENS", 32_768, 1_024, 131_072);
 
   return {
     bindHost,
     port: integerEnv("KAI_WORK_HOST_PORT", 8787, 1, 65_535),
     stateRoot,
-    dshRoot,
-    dshHome: path.resolve(process.env.KAI_WORK_HOST_DSH_HOME ?? path.join(stateRoot, "dsh")),
-    dshCliPath: path.resolve(
-      process.env.KAI_WORK_HOST_DSH_CLI ?? path.join(dshRoot, "apps", "cli", "lib", "bin.js"),
-    ),
-    dshSdkPluginRoot: path.resolve(
-      process.env.KAI_WORK_HOST_DSH_SDK_PLUGIN ?? path.join(dshRoot, "packages", "sdk", "server"),
-    ),
-    dshProfile: process.env.KAI_WORK_HOST_DSH_PROFILE ?? "kai-work-host",
-    dshProvider: provider,
+    codexHome: path.resolve(process.env.KAI_WORK_HOST_CODEX_HOME ?? path.join(stateRoot, "codex")),
+    codexCliPath: path.resolve(process.env.KAI_WORK_HOST_CODEX_CLI ??
+      fileURLToPath(new URL("../node_modules/@openai/codex/bin/codex.js", import.meta.url))),
     workerModel,
     workerEffort: effortRaw,
     executionProfile,
-    workerMaxOutputTokens: outputTokens,
     runtimeStartupTimeoutMs: integerEnv("KAI_WORK_HOST_RUNTIME_STARTUP_MS", 120_000, 2_000, 120_000),
     runtimeTurnTimeoutMs: integerEnv("KAI_WORK_HOST_RUNTIME_TURN_MS", 1_800_000, 10_000, 7_200_000),
     bearerToken,

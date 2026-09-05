@@ -1,8 +1,8 @@
 # Third-party notices
 
-This source distribution does not vendor `node_modules` or the DSH checkout.
-The Windows installer downloads exact dependency versions from their upstream
-registries and keeps DSH as a separate pinned checkout. Binary/offline bundles
+This source distribution does not vendor `node_modules`.
+The Windows installer downloads the exact official Codex package and other dependencies
+from npm using package-lock.json. Binary/offline bundles
 must regenerate this file and their SBOM from the exact bundled closure.
 
 ## Adapted source
@@ -14,6 +14,7 @@ must regenerate this file and their SBOM from the exact bundled closure.
 
 | Package | Version | License |
 |---|---:|---|
+| `@openai/codex` | 0.153.3 | Apache-2.0 |
 | `@modelcontextprotocol/node` | 2.0.0 | MIT |
 | `@modelcontextprotocol/server` | 2.0.0 | MIT |
 | `sharp` | 0.35.3 | Apache-2.0 |
@@ -32,13 +33,6 @@ bundle.
 | `@types/node` | 24.13.3 | MIT |
 | `tsx` | 4.23.13 | MIT |
 | `typescript` | 6.0.3 | Apache-2.0 |
-
-## External runtime dependency
-
-- DeepSeek Harness 0.1.1-rc.2 at commit
-  `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` — MIT — copyright 2026 DeepSeek.
-  It is fetched from <https://github.com/deepseek-ai/deepseek-harness> and
-  verified by version and commit before use.
 
 Transitive dependency metadata is recorded in [`sbom.cdx.json`](sbom.cdx.json)
 and `package-lock.json`. Each dependency's own license remains authoritative.

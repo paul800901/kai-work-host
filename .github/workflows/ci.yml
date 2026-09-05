@@ -23,12 +23,15 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
+      - run: npm run smoke:codex:keyless
+      - run: npm run smoke:entrypoint
+      - run: npm run smoke:stdio
       - run: npm run release:verify
       - run: npm run release:scan
       - run: npm run release:sbom
       - name: Confirm the committed SBOM is current
         shell: pwsh
         run: git diff --exit-code -- sbom.cdx.json
-      - name: Build and verify a release archive without DSH or credentials
+      - name: Build and verify a release archive without credentials
         shell: pwsh
         run: npm run release:package -- -OutputDirectory "$env:RUNNER_TEMP\release" -ArtifactName "KAI-Work-Host-CI-${{ github.sha }}" -SkipValidation

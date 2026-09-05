@@ -12,22 +12,22 @@ import {
 } from "./bridge-state.js";
 import type { LunaReasoning, LunaSandbox } from "./types.js";
 
-export const KAI_SESSION_POLICY_VERSION = 2 as const;
+export const KAI_SESSION_POLICY_VERSION = 3 as const;
 export const KAI_SESSION_POLICY = Object.freeze({
   version: KAI_SESSION_POLICY_VERSION,
-  scope: "current_web_session_plus_registered_project_memory" as const,
+  scope: "current_web_session_and_explicit_project_instructions" as const,
   allow_chatgpt_account_memory_write: false,
   allow_cross_chat_session_binding_reuse: false,
   allow_same_session_persistence: true,
   kai_l0_runtime_memory: true,
-  kai_l1_episodic_memory: true,
-  kai_l2_evidence_memory: true,
+  kai_l1_episodic_memory: false,
+  kai_l2_evidence_memory: false,
   requires_acknowledgement: false,
 });
 export const KAI_COMPACT_SESSION_POLICY =
-  "current-web-session binding; registered-project KAI L0/L1/L2 memory; no ChatGPT account-memory write; no cross-chat session reuse";
+  "current-web-session binding; durable task records without automatic cross-task memory; no ChatGPT account-memory write; no cross-chat session reuse";
 export const KAI_SESSION_BOUNDARY_NOTICE =
-  "KAI Work Host keeps this WebGPT conversation binding private to this conversation. Project-scoped L0 runtime state, L1 verified execution episodes, and evidence-backed L2 facts may persist locally for the registered project; ChatGPT account Memory is not modified.";
+  "KAI keeps this conversation binding and task records durable. Only the explicit task and project instructions are supplied; automatic cross-task memory and Codex memory generation/use are disabled. ChatGPT account Memory is not modified.";
 
 interface InitializeInput {
   workspacePath: string;
@@ -452,7 +452,7 @@ export class CompatibilityService {
       networkAccess,
       instructions: [
         "WebGPT Sol is the high-level planner for this project.",
-        "Use KAI L0/L1/L2 memory and concise receipts to avoid repeated exploration.",
+        "Use only the supplied task, explicit project instructions, and on-demand relevant reads. Do not inject cross-task memories.",
       ],
     });
   }

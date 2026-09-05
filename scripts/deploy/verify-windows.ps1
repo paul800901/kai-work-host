@@ -43,7 +43,7 @@ try {
     version = [string]$receipt.version
     installRoot = $InstallRoot
     stateRoot = $stateRoot
-    dshCommit = [string]$receipt.dsh_commit
+    codexVersion = [string]$receipt.codex_version
     publicTools = 18
     rawTools = 19
     paidModelUsed = $false

@@ -44,7 +44,7 @@
     "validate": "npm run check && npm run test && npm run build && npm run release:verify && npm run release:scan && npm run smoke:codex:keyless && npm run smoke:entrypoint && npm run smoke:stdio"
   },
   "dependencies": {
-    "@openai/codex": "0.153.3",
+    "@openai/codex": "0.154.0",
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "sharp": "0.35.3",
